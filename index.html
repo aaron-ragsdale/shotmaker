@@ -232,12 +232,15 @@ button.secondary{background:linear-gradient(180deg,#2f3f67,#26314e)}
           <div class="meter" style="grid-column:1 / -1"><div id="velocityBar"></div></div>
 
           <span>Horizontal aim</span><strong id="aimReadout">Centered</strong>
+          <span>Hand landmarks</span><strong id="handsReadout">Not started</strong>
           <span>Shot state</span><strong id="phase">Not tracking</strong>
         </div>
 
         <div class="control-buttons">
           <button class="primary" id="start">Enable camera</button>
-          <button class="secondary" id="demo">Demo shot</button>
+          <button class="secondary" id="demo">Demo Center</button>
+          <button class="secondary" id="demoLeft">Demo Left</button>
+          <button class="secondary" id="demoRight">Demo Right</button>
           <button class="secondary" id="reset">Reset</button>
           <button class="secondary" id="csv" disabled>Download CSV</button>
         </div>
@@ -255,7 +258,7 @@ button.secondary{background:linear-gradient(180deg,#2f3f67,#26314e)}
               <option value="CPU">CPU (alternative)</option>
             </select>
           </label>
-          <label><input type="checkbox" id="showPose" checked> Show pose</label><label><input type="checkbox" id="useHands" checked> Hand tracking</label>
+          <label><input type="checkbox" id="showPose" checked> Show pose</label><label><input type="checkbox" id="useHands" checked> Show 21-point hand landmarks</label>
         </div>
 
         <div class="settings-row">
@@ -287,7 +290,7 @@ button.secondary{background:linear-gradient(180deg,#2f3f67,#26314e)}
         <p id="errorHelp" role="alert"></p>
 
         <div class="tip-box">
-          <strong>How to play:</strong> Bend your elbow slightly, then extend and flick upward to release. MediaPipe Hands tracks the palm/MCP knuckles when visible, with pose wrist fallback. Your horizontal arm alignment moves the shot left or right in <strong>both</strong> modes: Arcade offers gentle aim; Form challenge amplifies it. Shots that graze the rim visibly ricochet. This is an arcade estimate, not a validated biomechanics assessment.
+          <strong>How to play:</strong> Bend your elbow slightly, then extend and flick upward to release. The camera now draws all 21 hand landmarks when detected. Use Demo Left and Demo Right to check sideways ball flight independently of your camera. MediaPipe Hands tracks the palm/MCP knuckles when visible, with pose wrist fallback. Your horizontal arm alignment moves the shot left or right in <strong>both</strong> modes: Arcade offers gentle aim; Form challenge amplifies it. Shots that graze the rim visibly ricochet. This is an arcade estimate, not a validated biomechanics assessment.
         </div>
 
         <p class="privacy">Privacy: pose inference runs locally in your browser. ShotMaker POV Arcade does not upload camera frames. MediaPipe JavaScript, WASM, and model files are downloaded from public hosting on first load.</p>
@@ -300,6 +303,7 @@ button.secondary{background:linear-gradient(180deg,#2f3f67,#26314e)}
 import {PoseLandmarker, HandLandmarker, FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/vision_bundle.mjs';
 const $=id=>document.getElementById(id),c=$('court'),g=c.getContext('2d'),video=$('video'),overlay=$('overlay'),og=overlay.getContext('2d');
 let handTracker=null,handLandmarks=null,handTimestamp=0,handInferAt=0,handAvailable=false,handInterval=95;
+const HAND_BONES=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
 let tracker=null,stream=null,live=false,lastVideoTime=-1,landmarks=null,smooth=null,samples=[],state='idle',loadedAt=0,lastShot=0,loadInfo=null,peakUp=0,peakAt=0,prevElbow=180,currentAim=0,aimSource='Pose';
 let shots=0,made=0,streak=0,bestStreak=0,ball=null,particles=[],lastFrame=performance.now(),shotEvents=[],lastInfer=0,inferInterval=40,poseFps=0,frameCount=0,fpsStart=0;
 let feedbackText='Enable the camera or try a demo shot.',feedbackMode='info',statusMessage='Waiting for camera';
@@ -311,11 +315,13 @@ function setState(s){state=s;$('phase').textContent=({idle:'Waiting for load',lo
 function reset(){
   shots=0;made=0;streak=0;bestStreak=0;shotEvents=[];$('csv').disabled=true;ball=null;particles=[];
   $('made').textContent='0';$('attempts').textContent='0';$('pct').textContent='0%';$('streak').textContent='0';
-  $('shotData').textContent='Angle — · Power —';$('aimReadout').textContent='Centered';loadInfo=null;peakUp=0;currentAim=0;setState('idle');$('trajectoryState').textContent='LIVE ARC';$('gameState').textContent='Ready to shoot';setState('idle');
+  $('shotData').textContent='Angle — · Power —';$('aimReadout').textContent='Centered';$('handsReadout').textContent=handAvailable?'Searching for hands':'Not started';loadInfo=null;peakUp=0;currentAim=0;setState('idle');$('trajectoryState').textContent='LIVE ARC';$('gameState').textContent='Ready to shoot';setState('idle');
   say('Session reset. Heat up and start shooting.','info');
 }
 $('reset').onclick=reset;
-$('demo').onclick=()=>{if(ball)return;shoot(55+Math.random()*5,1+Math.random()*.025,true,Math.random()<.45?(Math.random()<.5?-1:1)*(52+Math.random()*22):0,180)};
+$('demo').onclick=()=>{if(!ball)shoot(57,1.01,true,0,105)};
+$('demoLeft').onclick=()=>{if(!ball)shoot(57,1.01,true,-125,105)};
+$('demoRight').onclick=()=>{if(!ball)shoot(57,1.01,true,125,105)};
 $('start').onclick=async()=>{
   if(live){stop();return}
   const btn=$('start');btn.disabled=true;setStatus('Loading camera and pose model…');say('Loading camera and pose model…','info');
@@ -353,6 +359,7 @@ $('start').onclick=async()=>{
     }
     live=true;$('cammsg').classList.add('hidden');$('start').textContent='Stop camera';$('tracking').textContent='Tracking ready';
     $('liveDot').classList.add('live');
+    $('handsReadout').textContent=handAvailable?'Looking for hand':'Unavailable: using wrist';
     setStatus(handAvailable?'Pose + hands ready':'Pose ready (wrist fallback)');say('Camera ready. Load your arm, then release upward.','good');$('gameState').textContent='Tracking ready';
     $('errorHelp').style.display='none';
   }catch(e){
@@ -368,7 +375,7 @@ function stop(){
   live=false;stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;tracker?.close();tracker=null;handTracker?.close();handTracker=null;handLandmarks=null;handAvailable=false;
   landmarks=null;smooth=null;samples=[];loadInfo=null;peakUp=0;og.clearRect(0,0,overlay.width,overlay.height);$('cammsg').classList.remove('hidden');
   $('tracking').textContent='Camera off';$('start').textContent='Enable camera';$('liveDot').classList.remove('live');
-  setStatus('Waiting for camera');setState('idle');
+  $('handsReadout').textContent='Not started';setStatus('Waiting for camera');setState('idle');
 }
 function elbowAngle(s,e,w){const a={x:s.x-e.x,y:s.y-e.y},b={x:w.x-e.x,y:w.y-e.y};return Math.acos(clamp((a.x*b.x+a.y*b.y)/(Math.hypot(a.x,a.y)*Math.hypot(b.x,b.y)+1e-8),-1,1))*180/Math.PI}
 // The release detector uses a temporal gesture window rather than demanding
@@ -382,7 +389,8 @@ function poseUpdate(t){
       const h=handTracker.detectForVideo(video,t);
       handLandmarks=h.landmarks||[];
       handTimestamp=t;
-    }catch(err){console.warn('Hand inference failed, using pose wrist',err);handLandmarks=[];}
+      $('handsReadout').textContent=handLandmarks.length ? `${handLandmarks.length} hand(s), 21 points each` : 'Looking for hand';
+    }catch(err){console.warn('Hand inference failed, using pose wrist',err);handLandmarks=[];$('handsReadout').textContent='Hand inference error';}
   }
   let out;
   try{out=tracker.detectForVideo(video,t)}catch(e){console.warn(e);return}
@@ -425,7 +433,7 @@ function poseUpdate(t){
   const ready=t-lastShot>600&&!ball;
   // A slightly bent arm can load; deeper bends increase the shot's range.
   if(state==='idle' && ready && angle<config.load){
-    loadInfo={start:t,minAngle:angle,startWristX:w.x,startWristY:w.y,startHandX:handPoint.x};
+    loadInfo={start:t,minAngle:angle,startWristX:w.x,startWristY:w.y,startHandX:handPoint.x,startLean:handPoint.x-e.x};
     peakUp=0;peakAt=0;setState('loaded');setStatus('Loaded · lift your wrist');
   }
   if(state==='loaded'&&loadInfo){
@@ -445,40 +453,42 @@ function poseUpdate(t){
       const power=clamp((.97+.095*flickFactor)*depthFactor,.79,1.085);
       // Use a stable arcade launch angle. The POV and side-view share this arc.
       const theta=clamp(55+(Math.max(0,e.y-w.y)-.15)*17,51,62);
-      const aimOffset=aimFromArm(s,e,handPoint,loadInfo.startHandX);
+      const aimOffset=aimFromArm(s,e,handPoint,loadInfo);
       shoot(theta,power,false,aimOffset,loadInfo.minAngle);
       lastShot=t;loadInfo=null;peakUp=0;setState('flight');setStatus('Shot released');
     }else if(t-loadInfo.start>3300){loadInfo=null;peakUp=0;setState('idle');setStatus('Reload your shot')}
   }
   // Live aim display updates before release; don't silently force Arcade to center.
-  currentAim=aimFromArm(s,e,handPoint,loadInfo?.startHandX??handPoint.x);
+  currentAim=aimFromArm(s,e,handPoint,loadInfo);
   if(!ball){$('aimReadout').textContent=aimLabel(currentAim)+' · '+aimSource;}
   if(state==='cooldown'&&ready){setState('idle');setStatus('Ready again')}
-  $('aimReadout').textContent=$('difficulty').value==='arcade'?'Centered (easy)':
-    (state==='loaded'?'Reading arm alignment':'Form mode active');
-  if(!$('showPose').checked)return;
+  // Pose and hand visualization can be independently enabled.
+  if($('showPose').checked){
   const lines=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24]];
   ctx.lineWidth=4;ctx.strokeStyle='rgba(109,255,207,.9)';
   for(const [a,b] of lines){const p=landmarks[a],q=landmarks[b];if((p.visibility??1)<.35||(q.visibility??1)<.35)continue;ctx.beginPath();ctx.moveTo(p.x*640,p.y*480);ctx.lineTo(q.x*640,q.y*480);ctx.stroke()}
   for(const i of [11,12,13,14,15,16,23,24]){const p=landmarks[i];if((p.visibility??1)<.35)continue;ctx.beginPath();ctx.arc(p.x*640,p.y*480,i===arm[2]?9:5,0,Math.PI*2);ctx.fillStyle=i===arm[2]?'#ff9a3c':'#dbf7ff';ctx.fill()}
   ctx.strokeStyle=state==='loaded'?'#ffe066':'#67b7ff';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(s.x*640,s.y*480);ctx.lineTo(e.x*640,e.y*480);ctx.lineTo(w.x*640,w.y*480);ctx.stroke();
-  if(selectedHand){
-    // Draw the wrist-to-MCP landmarks and four knuckle positions on the camera.
-    ctx.strokeStyle='#ffdb82';ctx.lineWidth=3;ctx.beginPath();
-    ctx.moveTo(selectedHand[0].x*640,selectedHand[0].y*480);
-    ctx.lineTo(selectedHand[9].x*640,selectedHand[9].y*480);ctx.stroke();
-    for(const j of [0,5,9,13,17]){const pt=selectedHand[j];ctx.fillStyle=j===9?'#fff':'#ffb24c';ctx.beginPath();ctx.arc(pt.x*640,pt.y*480,j===9?8:5,0,Math.PI*2);ctx.fill();}
-  }
   ctx.fillStyle='#fff';ctx.font='bold 17px system-ui';ctx.fillText(Math.round(angle)+'°',e.x*640+12,e.y*480-12);
+  }
+  if(selectedHand && $('useHands').checked){
+    // Draw ALL 21 MediaPipe hand points and the connected finger skeleton.
+    ctx.strokeStyle='#ffe084';ctx.lineWidth=2.6;
+    for(const [a,b] of HAND_BONES){ctx.beginPath();ctx.moveTo(selectedHand[a].x*640,selectedHand[a].y*480);ctx.lineTo(selectedHand[b].x*640,selectedHand[b].y*480);ctx.stroke()}
+    for(let j=0;j<21;j++){const pt=selectedHand[j];ctx.fillStyle=j===9?'#ffffff':j===0?'#ff75d3':'#ffbd52';ctx.beginPath();ctx.arc(pt.x*640,pt.y*480,j===9?7:4,0,Math.PI*2);ctx.fill()}
+  }
 }
-function aimFromArm(s,e,p,startX){
-  const width=Math.max(.14,Math.abs(landmarks[11].x-landmarks[12].x));
-  // Deviation from vertical forearm + lateral movement during the release.
-  const lean=(p.x-e.x+.22*(e.x-s.x))/width;
-  const sweep=(p.x-startX)/width;
-  const mirrorAim=-(lean*.78+sweep*.62);
-  const gain=$('difficulty').value==='form'?125:83;
-  return clamp(mirrorAim,-1.25,1.25)*gain;
+function aimFromArm(s,e,p,loaded){
+  // Normalized left/right aim follows real camera-space sideways hand motion.
+  // Calibrate the resting hand-forearm offset when the elbow loads, so an
+  // ordinary shooting stance is not always interpreted as a sideways miss.
+  const shoulderWidth=Math.max(.13,Math.abs(landmarks[11].x-landmarks[12].x));
+  const handDisplacement=loaded ? p.x-loaded.startHandX : 0;
+  const leanOffset=loaded ? (p.x-e.x)-loaded.startLean : (p.x-e.x)*.32;
+  const normalized=(handDisplacement*.92+leanOffset*.40)/shoulderWidth;
+  // Camera preview is mirrored; correct horizontal sign for player-facing POV.
+  const gain=$('difficulty').value==='form'?205:128;
+  return clamp(-normalized*gain,-175,175);
 }
 function aimLabel(px){return Math.abs(px)<12?'Centered':`${Math.round(Math.abs(px))} px ${px<0?'LEFT':'RIGHT'}`}
 // Solve the speed that intersects the hoop at the given angle, then apply
@@ -644,7 +654,7 @@ function povBallPosition(b){
   const naturalY=lerp(release.y,rim.y,d);
   const baseline=lerp(520,235,d);
   const elevation=(b.y-naturalY)*lerp(.92,.63,clamp(d,0,1));
-  return {x:480+(b.lateral??0), y:baseline+elevation, r:clamp(29/(1+1.7*Math.max(0,d)),7,32),d};
+  return {x:480+(b.lateral??0)*1.65, y:baseline+elevation, r:clamp(29/(1+1.7*Math.max(0,d)),7,32),d};
 }
 function drawTrajectory(){
   const tw=trajectoryCanvas.width,th=trajectoryCanvas.height;
@@ -671,7 +681,18 @@ function drawTrajectory(){
   }
   tg.fillStyle='#b9cbeb';tg.font='700 11px system-ui';tg.fillText('RELEASE',10,th-8);
   tg.fillText('HOOP',tw-45,th-8);
-  if(ball){tg.fillStyle='#ffd77a';tg.font='700 10px system-ui';tg.fillText(aimLabel(ball.lateral),12,14);}
+  // Small top-down mini-map: the side arc alone cannot communicate left/right.
+  tg.fillStyle='rgba(9,14,33,.90)';tg.fillRect(0,137,tw,43);
+  tg.strokeStyle='rgba(109,255,207,.35)';tg.lineWidth=1;tg.strokeRect(110,142,80,30);
+  tg.strokeStyle='#ff9652';tg.lineWidth=3;tg.beginPath();tg.moveTo(134,148);tg.lineTo(166,148);tg.stroke();
+  const lateral=ball?ball.lateral:currentAim;
+  const aimX=150+clamp(lateral,-175,175)*.68;
+  tg.strokeStyle=Math.abs(lateral)>42?'#ff708e':'#71ffd1';tg.lineWidth=2;
+  tg.beginPath();tg.moveTo(150,175);tg.lineTo(aimX,150);tg.stroke();
+  tg.fillStyle='#ffbe69';tg.beginPath();tg.arc(aimX,150,5,0,Math.PI*2);tg.fill();
+  tg.fillStyle='#bbd0f0';tg.font='700 10px system-ui';tg.fillText('L',100,155);tg.fillText('R',194,155);
+  tg.fillStyle='#ffd77a';tg.fillText(aimLabel(lateral),9,151);
+  
 }
 function drawBallSide(x,y,r){
   tg.fillStyle='#f3933a';tg.strokeStyle='#402219';tg.lineWidth=1.5;tg.beginPath();tg.arc(x,y,r,0,Math.PI*2);tg.fill();tg.stroke();
@@ -690,8 +711,11 @@ function draw(){
   }else{
     // Idle ball is held close to the camera, centered below the hoop.
     drawBall(480,520,30);
-    g.strokeStyle='rgba(109,255,207,.35)';g.lineWidth=2;g.setLineDash([6,10]);
-    g.beginPath();g.moveTo(480,475);g.lineTo(480,305);g.stroke();g.setLineDash([]);
+    // Aim line and predicted intersection at the hoop, visible before shooting.
+    const targetX=480+currentAim*1.65;
+    g.strokeStyle=Math.abs(currentAim)>42?'rgba(255,113,149,.85)':'rgba(109,255,207,.75)';g.lineWidth=3;g.setLineDash([8,9]);
+    g.beginPath();g.moveTo(480,475);g.lineTo(targetX,231);g.stroke();g.setLineDash([]);
+    g.beginPath();g.arc(targetX,231,12,0,Math.PI*2);g.stroke();
   }
   for(const p of particles){g.globalAlpha=p.life;g.fillStyle=p.color;g.beginPath();g.arc(480+(p.x-(rim.x+rim.w/2))*.5,245+(p.y-rim.y)*.5,4,0,Math.PI*2);g.fill()}
   g.globalAlpha=1;drawHud();drawTrajectory();
