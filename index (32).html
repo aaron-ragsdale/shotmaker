@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>ShotLab | Browser Pose Basketball Game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=Bungee&display=swap" rel="stylesheet"/>
+<style>
+/* =========================================================
+   ShotLab UI
+   Two looks share one layout. body[data-theme] swaps tokens.
+   ========================================================= */
+:root{
+  --font-ui:'Barlow',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --chrome-h:64px;      /* header height */
+  --dock-h:56px;        /* control dock height */
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{font-family:var(--font-ui);color:var(--text);background:var(--page);-webkit-font-smoothing:antialiased;transition:background .25s}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+/* ---------- Arcade tokens ---------- */
+body[data-theme=arcade]{
+  --page:#0d0629;--text:#fff6e5;--muted:#b9a9f0;
+  --panel:rgba(26,12,78,.92);--panel-line:#34e5ff;--panel-w:3px;--radius:18px;
+  --accent:#ffd43b;--accent-ink:#2a0f4a;--good:#5cf2a1;--bad:#ff5d73;--hot:#ff3c8e;--focus:#34e5ff;
+  --font-big:'Bungee',Impact,'Arial Black',sans-serif;--num-weight:400;
+  --btn-bg:#3b1f9e;--btn-border:#0d0629;--btn-shadow:0 4px 0 #0d0629;--btn-radius:12px;
+  --sheet:#1a0c4e;--stage-shadow:0 0 0 4px #ff3c8e,0 0 44px rgba(255,60,142,.35);
+  --brand-shadow:2px 2px 0 #ff3c8e;
+}
+/* ---------- Realistic tokens ---------- */
+body[data-theme=real]{
+  --page:#090c11;--text:#eef1f5;--muted:#8f9aa9;
+  --panel:rgba(9,13,19,.8);--panel-line:rgba(255,255,255,.16);--panel-w:1px;--radius:10px;
+  --accent:#e8a24a;--accent-ink:#1c1206;--good:#4cc38a;--bad:#e5645a;--hot:#e8a24a;--focus:#7cc4ff;
+  --font-big:'Barlow Condensed','Arial Narrow',system-ui,sans-serif;--num-weight:700;
+  --btn-bg:rgba(255,255,255,.07);--btn-border:rgba(255,255,255,.18);--btn-shadow:none;--btn-radius:8px;
+  --sheet:#0f141b;--stage-shadow:0 24px 70px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.08);
+  --brand-shadow:none;
+}
+
+/* ---------- Header ---------- */
+.top{height:var(--chrome-h);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 clamp(12px,2.4vw,28px)}
+.brand{font-family:var(--font-big);font-weight:var(--num-weight);font-size:26px;letter-spacing:.02em;text-shadow:var(--brand-shadow);white-space:nowrap}
+.brand small{font-family:var(--font-ui);font-size:13px;font-weight:500;letter-spacing:0;color:var(--muted);margin-left:10px;text-shadow:none}
+.seg{display:inline-flex;gap:3px;padding:3px;border-radius:999px;background:var(--btn-bg);border:var(--panel-w) solid var(--btn-border)}
+.seg button{border:0;background:transparent;color:var(--muted);padding:7px 14px;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+
+/* ---------- Layout: frame (canvas + overlays) then dock ---------- */
+.shell{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;padding:0 clamp(10px,2vw,24px) 18px;
+  --avail-h:max(280px,calc(100dvh - var(--chrome-h) - var(--dock-h) - 40px));
+  --stage-w:min(100%,calc(var(--avail-h) * 900 / 700))}
+.shell:fullscreen,.shell:-webkit-full-screen{--chrome-h:0px;background:var(--page);justify-content:center;padding:12px;min-height:100dvh}
+.frame{position:relative;width:var(--stage-w);aspect-ratio:900/700;border-radius:var(--radius);overflow:hidden;background:#000;box-shadow:var(--stage-shadow);container-type:inline-size}
+#court{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+/* ---------- Scoreboard ---------- */
+.hud{position:absolute;left:2.2%;top:2.8%;display:flex;align-items:center;gap:2.2cqw;padding:1.2cqw 2.2cqw;background:var(--panel);border:var(--panel-w) solid var(--panel-line);border-radius:var(--radius);color:var(--text);z-index:3}
+.hud .lbl{display:block;font-size:max(10px,1.45cqw);font-weight:600;color:var(--muted);line-height:1.25}
+.hud .num{font-family:var(--font-big);font-weight:var(--num-weight);line-height:1;display:block}
+.hud .big{font-size:max(26px,5.4cqw);color:var(--accent)}
+.hud .big i{font-style:normal;color:var(--muted);font-size:.6em;margin:0 .12em}
+.hud .mid{font-size:max(20px,3.6cqw)}
+.hud .sub{display:block;font-size:max(9px,1.3cqw);color:var(--muted);margin-top:.3cqw}
+.hud .sep{width:var(--panel-w);align-self:stretch;background:var(--panel-line);opacity:.45}
+.hud .hot .mid{color:var(--hot)}
+.hud .hot .sub{color:var(--hot);font-weight:700}
+
+/* ---------- Camera inset ---------- */
+.camcard{position:absolute;right:2.2%;top:2.8%;width:24%;background:var(--panel);border:var(--panel-w) solid var(--panel-line);border-radius:var(--radius);overflow:hidden;z-index:3;transition:width .2s ease,border-color .15s}
+.camcard.big{width:46%}
+.cam{position:relative;aspect-ratio:var(--ar,16/9);background:#05070b;cursor:zoom-in}
+.camcard.big .cam{cursor:zoom-out}
+.cam video,.cam canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.cam-chip{position:absolute;left:6px;top:6px;z-index:3;display:flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;background:rgba(0,0,0,.62);color:#fff;font-size:max(9px,1.25cqw);font-weight:600}
+.dot{display:inline-block;width:.7em;height:.7em;border-radius:50%;background:#7a8090;flex:none}
+.dot.active{background:var(--good);box-shadow:0 0 10px var(--good)}
+.cammsg{position:absolute;inset:0;display:grid;place-content:center;text-align:center;color:var(--muted);font-size:max(10px,1.5cqw);padding:8px;line-height:1.35}
+.cammsg.hidden{display:none}
+.camstats{padding:1cqw 1.3cqw 1.2cqw;display:grid;gap:.8cqw}
+.camstats .phase{font-weight:700;font-size:max(11px,1.6cqw);line-height:1.2}
+.camstats .row{display:grid;grid-template-columns:1fr 1fr;gap:1.4cqw}
+.camstats .k{display:flex;justify-content:space-between;font-size:max(9px,1.25cqw);color:var(--muted);margin-bottom:.4cqw}
+.camstats .k b{color:var(--text)}
+.meter{height:max(4px,.7cqw);background:rgba(255,255,255,.15);border-radius:99px;overflow:hidden}
+.meter>div{height:100%;width:0;background:var(--good);transition:width .08s}
+#velocityBar{background:var(--accent)}
+.camcard[data-state=loaded]{border-color:var(--accent)}
+.camcard[data-state=flight]{border-color:var(--good)}
+
+/* ---------- Shot callout ---------- */
+.callout{position:absolute;left:50%;top:32%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;opacity:0;z-index:4;white-space:nowrap}
+.callout-main{font-family:var(--font-big);font-weight:var(--num-weight);line-height:1}
+.callout-sub{font-weight:600;margin-top:.8cqw;font-size:max(12px,1.8cqw);color:var(--text)}
+body[data-theme=arcade] .callout-main{font-size:max(34px,9cqw);color:var(--accent);-webkit-text-stroke:.55cqw #12062e;paint-order:stroke fill;text-shadow:.7cqw .7cqw 0 var(--hot)}
+body[data-theme=arcade] .callout.miss .callout-main{color:var(--bad)}
+body[data-theme=arcade] .callout-sub{background:#12062e;padding:.4cqw 1.4cqw;border-radius:99px;display:inline-block}
+body[data-theme=real] .callout-main{font-size:max(30px,7.4cqw);letter-spacing:.01em;color:#fff;text-shadow:0 2px 18px rgba(0,0,0,.7)}
+body[data-theme=real] .callout.miss .callout-main{color:#d5dae1}
+body[data-theme=real] .callout-sub{color:#e8ecf1;text-shadow:0 1px 8px rgba(0,0,0,.8)}
+@keyframes pop{0%{opacity:0;transform:translate(-50%,-30%) scale(.5) rotate(-6deg)}16%{opacity:1;transform:translate(-50%,-50%) scale(1.16) rotate(-3deg)}28%{transform:translate(-50%,-50%) scale(1) rotate(-3deg)}78%{opacity:1}100%{opacity:0;transform:translate(-50%,-62%) scale(1) rotate(-3deg)}}
+@keyframes rise{0%{opacity:0;transform:translate(-50%,-30%)}22%{opacity:1;transform:translate(-50%,-50%)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-64%)}}
+@keyframes fade{0%{opacity:0}15%{opacity:1}80%{opacity:1}100%{opacity:0}}
+body[data-theme=arcade] .callout.show{animation:pop 1.5s ease-out both}
+body[data-theme=real] .callout.show{animation:rise 1.9s ease-out both}
+@media (prefers-reduced-motion:reduce){body .callout.show{animation:fade 1.6s linear both;transform:translate(-50%,-50%)}}
+
+/* ---------- Error banner ---------- */
+.err{position:absolute;left:50%;bottom:4%;transform:translateX(-50%);max-width:78%;margin:0;padding:10px 14px;border-radius:var(--radius);background:var(--panel);border:var(--panel-w) solid var(--bad);color:var(--text);font-size:max(12px,1.6cqw);line-height:1.45;z-index:5}
+.err[hidden]{display:none}
+
+/* ---------- Intro ---------- */
+.intro{position:absolute;inset:0;display:grid;place-items:center;padding:4%;z-index:6;overflow:auto;background:rgba(6,3,22,.6)}
+body[data-theme=real] .intro{background:rgba(5,8,12,.62);backdrop-filter:blur(3px)}
+.intro[hidden]{display:none}
+.intro-card{width:min(500px,100%);background:var(--sheet);border:var(--panel-w) solid var(--panel-line);border-radius:var(--radius);padding:clamp(16px,3.2cqw,30px)}
+.intro h1{margin:0 0 8px;font-family:var(--font-big);font-weight:var(--num-weight);font-size:max(24px,4cqw);line-height:1.1}
+.intro p{margin:0 0 12px;color:var(--muted);line-height:1.5;font-size:max(13px,1.75cqw)}
+.intro ol{margin:0 0 16px;padding-left:1.3em;line-height:1.6;font-size:max(13px,1.75cqw)}
+.intro .arm{display:flex;align-items:center;gap:10px;margin-bottom:16px;font-weight:600;font-size:max(13px,1.7cqw)}
+.intro .acts{display:flex;gap:8px;flex-wrap:wrap}
+.intro .fine{margin:14px 0 0;font-size:max(11px,1.4cqw)}
+@container (max-width:560px){.intro ol{display:none}.hud .acc,.hud .acc+.sep{display:none}.camcard{width:34%}}
+
+/* ---------- Dock ---------- */
+.dock{width:var(--stage-w);min-height:var(--dock-h);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.status{display:flex;align-items:center;gap:9px;flex:1 1 260px;min-width:0;font-size:14px;color:var(--muted)}
+#feedback{color:var(--text);font-weight:500}
+#shotData{font-size:13px;white-space:nowrap}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:var(--panel-w) solid var(--btn-border);background:var(--btn-bg);color:var(--text);padding:9px 15px;border-radius:var(--btn-radius);font-size:14px;font-weight:600;cursor:pointer;box-shadow:var(--btn-shadow);transition:transform .08s,filter .15s}
+.btn:hover{filter:brightness(1.15)}
+.btn:active{transform:translateY(2px);box-shadow:none}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--btn-border)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* ---------- Setup sheet ---------- */
+.sheet{position:absolute;top:0;right:0;bottom:0;width:min(370px,94%);z-index:20;background:var(--sheet);border-left:var(--panel-w) solid var(--panel-line);padding:18px 18px 28px;overflow:auto;transform:translateX(104%);visibility:hidden;transition:transform .25s ease,visibility 0s .25s;box-shadow:-20px 0 50px rgba(0,0,0,.4)}
+.sheet.open{transform:none;visibility:visible;transition:transform .25s ease}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.sheet h2{margin:0;font-family:var(--font-big);font-weight:var(--num-weight);font-size:22px}
+.sheet h3{margin:22px 0 6px;font-size:14px}
+.field{display:grid;gap:5px;margin-bottom:14px}
+.field>label,.field>span{font-weight:600;font-size:14px}
+.field select{background:var(--btn-bg);border:var(--panel-w) solid var(--btn-border);border-radius:var(--btn-radius);padding:9px 10px;color:var(--text);font-size:14px}
+.field select option{color:#111}
+.hint{font-size:12px;color:var(--muted);line-height:1.45}
+.check{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:14px;font-weight:500}
+.check input{width:18px;height:18px;accent-color:var(--accent)}
+.sheet .btns{margin-top:6px}
+.sheet p{font-size:13px;line-height:1.55;color:var(--muted);margin:0 0 10px}
+.sheet p b{color:var(--text)}
+.toggles{display:flex;gap:10px;align-items:center}
+.trajcard{position:absolute;right:2.2%;bottom:17%;width:24%;background:var(--panel);border:var(--panel-w) solid var(--panel-line);border-radius:var(--radius);padding:.9cqw;z-index:3;color:var(--text)}
+.trajcard[hidden],body[data-view=side] .trajcard{display:none}
+.trajhead{display:flex;justify-content:space-between;gap:6px;font-size:max(9px,1.2cqw);font-weight:600;color:var(--muted);margin-bottom:.6cqw}
+.trajhead span:last-child{color:var(--good)}
+.field input[type=range]{width:100%;accent-color:var(--accent)}
+.field label b{color:var(--accent);margin-left:6px}
+#traj{display:block;width:100%;height:auto;border-radius:6px}
+.camstats .aimrow,.camstats .handrow{grid-column:1/-1}
+body[data-view=side] .pov-only{display:none}
+.meter.center{position:relative;overflow:visible}
+.meter.center::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,.5)}
+#aimDot{position:absolute;left:50%;top:-2px;width:8px;height:calc(100% + 4px);margin-left:-4px;border-radius:99px;background:var(--accent);transition:left .08s}
+
+@media (max-width:640px){.top .toggles{display:none}.brand small{display:none}.dock .btns{width:100%}.dock .btn{flex:1 1 auto}}
+</style>
+</head>
+<body data-theme="arcade" data-view="side">
+
+<header class="top">
+  <div class="brand">ShotLab<small>pose basketball</small></div>
+  <div class="toggles">
+    <div class="seg" role="group" aria-label="View">
+      <button type="button" data-view-btn="side" aria-pressed="true">Side</button>
+      <button type="button" data-view-btn="pov" aria-pressed="false">Behind</button>
+    </div>
+    <div class="seg" role="group" aria-label="Look">
+      <button type="button" data-theme-btn="arcade" aria-pressed="true">Arcade</button>
+      <button type="button" data-theme-btn="real" aria-pressed="false">Realistic</button>
+    </div>
+  </div>
+</header>
+
+<main class="shell" id="shell">
+  <div class="frame" id="frame">
+    <canvas id="court" aria-label="Basketball court"></canvas>
+
+    <!-- Scoreboard -->
+    <div class="hud" aria-live="off">
+      <div><span class="lbl">Made</span><span class="num big"><span id="made">0</span><i>/</i><span id="attempts">0</span></span></div>
+      <div class="sep"></div>
+      <div class="acc"><span class="lbl">Accuracy</span><span class="num mid" id="pct">0%</span></div>
+      <div class="sep"></div>
+      <div id="streakCell"><span class="lbl">Streak</span><span class="num mid" id="streak">0</span><span class="sub" id="streakNote">Best 0</span></div>
+    </div>
+
+    <!-- Camera inset -->
+    <div class="camcard" id="camCard" data-state="off">
+      <div class="cam" id="camBox" role="button" tabindex="0" aria-label="Enlarge or shrink camera view" title="Click to enlarge">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="overlay" width="640" height="360"></canvas>
+        <div class="cam-chip"><i class="dot" id="statusDot"></i><span id="tracking">Camera off</span></div>
+        <div class="cammsg" id="cammsg">Camera off.<br/>Your arm tracking appears here.</div>
+      </div>
+      <div class="camstats">
+        <div class="phase" id="phase">Camera off</div>
+        <div class="row">
+          <div><div class="k"><span>Elbow</span><b id="angle">—°</b></div><div class="meter"><div id="extendBar"></div></div></div>
+          <div><div class="k"><span>Wrist speed</span><b id="velocity">—</b></div><div class="meter"><div id="velocityBar"></div></div></div>
+        </div>
+        <div class="handrow"><div class="k"><span>Hand / flick</span><b id="fingerStatus">Pose only</b></div><div class="meter"><div id="fingerBar" style="background:var(--hot)"></div></div></div>
+        <div class="aimrow"><div class="k"><span>Aim</span><b id="aimVal">Center</b></div><div class="meter center"><div id="aimDot"></div></div></div>
+      </div>
+    </div>
+
+    <div class="trajcard" id="trajCard"><div class="trajhead"><span>Side trajectory</span><span id="trajState">Live arc</span></div><canvas id="traj" width="300" height="180" aria-label="Side view of the ball's arc with a top-down aim map"></canvas></div>
+
+    <div class="callout" id="callout" aria-hidden="true"><div class="callout-main" id="calloutMain"></div><div class="callout-sub" id="calloutSub"></div></div>
+    <p class="err" id="errorHelp" role="alert" hidden></p>
+
+    <!-- First-run card -->
+    <div class="intro" id="intro">
+      <div class="intro-card">
+        <h1>Shoot with your arm</h1>
+        <p>ShotLab reads your shooting arm through the camera. Stand 4 to 8 feet back so your shoulder, elbow, and wrist are in view.</p>
+        <ol><li>Bend your elbow a little to load the shot.</li><li>Lift your wrist and extend. A short upward motion is enough.</li><li class="pov-only">Behind view: point your arm left or right of the hoop to aim.</li></ol>
+        <div class="arm"><span>Shooting arm</span><div class="seg" role="group" aria-label="Shooting arm"><button type="button" data-hand="right" aria-pressed="true">Right</button><button type="button" data-hand="left" aria-pressed="false">Left</button></div></div>
+        <div class="field" style="grid-template-columns:1fr 1fr;gap:10px"><label for="introHair">Hair style<select id="introHair" style="display:block;width:100%;margin-top:5px"><option value="short">Short</option><option value="long">Long</option></select></label><label for="introSkin">Skin tone<select id="introSkin" style="display:block;width:100%;margin-top:5px"><option value="light">Light</option><option value="warm" selected>Warm</option><option value="medium">Medium</option><option value="deep">Deep</option><option value="dark">Dark</option></select></label></div>
+        <div class="acts"><button type="button" class="btn primary" id="introStart">Enable camera</button><button type="button" class="btn" id="introDemo">Try a demo shot</button></div>
+        <p class="fine">Pose tracking runs in your browser. Video never leaves your device.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="dock">
+    <div class="status"><span id="feedback" role="status" aria-live="polite">Ready. Enable your camera or try a demo shot.</span><span id="shotData">Last shot: none</span></div>
+    <div class="btns">
+      <button type="button" class="btn primary" id="start">Enable camera</button>
+      <button type="button" class="btn" id="demo">Demo shot</button>
+      <button type="button" class="btn" id="setupBtn" aria-expanded="false" aria-controls="sheet">Setup</button>
+      <button type="button" class="btn" id="fullscreenBtn">Full screen</button>
+    </div>
+  </div>
+
+  <!-- Setup sheet -->
+  <aside class="sheet" id="sheet" aria-label="Setup" inert>
+    <div class="sheet-head"><h2>Setup</h2><button type="button" class="btn" id="closeSheet">Done</button></div>
+
+    <div class="field"><span>View</span><div class="seg" role="group" aria-label="View"><button type="button" data-view-btn="side" aria-pressed="true">Side</button><button type="button" data-view-btn="pov" aria-pressed="false">Behind the ball</button></div>
+      <span class="hint">Behind view puts you in first person. Your arm's left and right direction steers the ball.</span></div>
+
+    <div class="field"><span>Look</span><div class="seg" role="group" aria-label="Look"><button type="button" data-theme-btn="arcade" aria-pressed="true">Arcade</button><button type="button" data-theme-btn="real" aria-pressed="false">Realistic</button></div></div>
+
+    <div class="field"><label for="hand">Shooting arm</label>
+      <select id="hand"><option value="right">Right</option><option value="left">Left</option></select></div>
+    <div class="field"><label for="hairStyle">Player hair style</label><select id="hairStyle"><option value="short">Short</option><option value="long">Long</option></select></div>
+    <div class="field"><label for="skinTone">Player skin tone</label><select id="skinTone"><option value="light">Light</option><option value="warm" selected>Warm</option><option value="medium">Medium</option><option value="deep">Deep</option><option value="dark">Dark</option></select></div>
+    <div class="field"><label for="sensitivity">Release sensitivity</label>
+      <select id="sensitivity"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option></select>
+      <span class="hint">Higher sensitivity triggers a shot with a gentler, slower arm motion.</span></div>
+    <div class="field"><label for="strength">Shot strength <b id="strengthVal">100%</b></label>
+      <input type="range" id="strength" min="50" max="150" step="5" value="100"/>
+      <span class="hint">Scales how far every shot goes. Lower it if shots run long, raise it if they fall short.</span></div>
+    <div class="field"><label for="difficulty">Difficulty</label>
+      <select id="difficulty"><option value="arcade" selected>Arcade (gentle aim)</option><option value="form">Form challenge (strong aim)</option></select>
+      <span class="hint">Arcade has a wider hoop window and forgives sideways drift. Form challenge shrinks the window and magnifies arm direction.</span></div>
+    <div class="field"><label for="trackingMode">Tracking speed</label>
+      <select id="trackingMode"><option value="standard">Standard (Mac)</option><option value="smooth">Smooth (iPad)</option></select>
+      <span class="hint">Applies the next time you enable the camera.</span></div>
+    <div class="field"><label for="delegateMode">Processor</label>
+      <select id="delegateMode"><option value="GPU">GPU (default)</option><option value="CPU">CPU (alternative)</option></select>
+      <span class="hint">Try CPU if tracking fails to start or runs slowly.</span></div>
+
+    <div class="field"><label for="handMode">Finger tracking (optional second model)</label><select id="handMode"><option value="balanced" selected>Balanced · 130 ms</option><option value="fast">Responsive · 90 ms</option><option value="off">Off · Pose only (fastest)</option></select><span class="hint">Elbow starts the shot immediately. A finger flick that is stronger or weaker than YOUR usual flick nudges distance a little before the ball leaves the hand. The hand model only runs while you are loaded, to save frame rate.</span></div>
+    <div class="field"><label for="handSearch">Hand search</label><select id="handSearch"><option value="crop" selected>Wrist crop (recommended)</option><option value="full">Full frame</option></select><span class="hint">Crop looks only in a window around your wrist, so your hand fills far more of what the model sees. Use Full frame if the hand is lost when your arm is high.</span></div>
+    <label class="check"><input type="checkbox" id="showPose" checked/> Show arm skeleton on camera</label>
+    <label class="check"><input type="checkbox" id="showGuide" checked/> Show target arc</label>
+    <label class="check pov-only"><input type="checkbox" id="showTraj" checked/> Show side trajectory inset</label>
+    <label class="check"><input type="checkbox" id="sound" checked/> Sound effects</label>
+
+    <h3>Session</h3>
+    <div class="btns"><button type="button" class="btn" id="reset">Reset session</button><button type="button" class="btn pov-only" id="demoLeft">Demo left</button><button type="button" class="btn pov-only" id="demoRight">Demo right</button><button type="button" class="btn" id="csv" disabled>Download CSV</button></div>
+
+    <h3>About</h3>
+    <p><b>How it works.</b> Bend your elbow to load, then extend and raise your wrist. The game measures a short release window. Wrist motion and elbow loading affect distance; forearm tilt affects arc; sideways movement steers left/right. The shot is not automatically corrected toward the basket.</p>
+    <p><b>Finger tracking.</b> Optional Hand Landmarker adds 21 finger joints per hand. Elbow extension triggers the shot; detected finger extension during release adjusts force and lateral aim. Without a visible hand, the game uses pose-only mechanics. This is a gesture-based approximation, not a measurement of true ball force.</p>
+    <p><b>Prototype note.</b> Ball flight is a stylized simulation. It does not detect a real ball, spin, or true 3D release speed. Use good lighting and a side-ish angle that keeps your arm visible.</p>
+    <p><b>Privacy.</b> Pose inference runs locally in your browser and no camera frames are uploaded. MediaPipe code and the model download from public hosting on first load. Camera access needs HTTPS or localhost.</p>
+  </aside>
+</main>
+
+<script type="module">
+import {PoseLandmarker, HandLandmarker, FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/vision_bundle.mjs';
+
+/* =========================================================
+   Setup
+   ========================================================= */
+const $=id=>document.getElementById(id);
+const court=$('court'),g=court.getContext('2d'),video=$('video'),overlay=$('overlay'),og=overlay.getContext('2d');
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),lerp=(a,b,t)=>a+(b-a)*t;
+
+// World (canvas units). Physics constants are unchanged from the original build.
+const W=900,H=700,FLOOR=H-62,GRAV=880;
+const rim={x:690,y:313,w:104},release={x:221,y:271}; // release is above the head, at the top of the shooting motion
+const rimWin=()=>$('difficulty').value==='arcade'?34:25;   // how close to the hoop center counts as a basket
+// Launch speed that drops into the hoop at a given release angle. 100% power at 55 degrees is a perfect shot;
+// angle and power then move the range independently.
+function calibratedSpeed(deg){
+  const dx=hoop.cx-release.x,up=release.y-rim.y,r=deg*Math.PI/180,den=2*Math.cos(r)**2*(dx*Math.tan(r)-up);
+  return Math.sqrt(GRAV*dx*dx/Math.max(1,den));
+}
+const hoop={cx:rim.x+rim.w/2,rx:rim.w/2,ry:9,netLen:58};
+const board={x:rim.x+rim.w,w:14,top:200,bottom:335,hw:85};   // hw = half width (used in the behind view)
+const SHOT_SPEED=calibratedSpeed(55);   // launch speed for a perfect 55-degree shot
+const REDUCED=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Crisp rendering on high-DPI screens
+const DPR=Math.min(2,window.devicePixelRatio||1);
+court.width=W*DPR;court.height=H*DPR;
+
+let tracker=null,handTracker=null,stream=null,live=false,lastVideoTime=-1,landmarks=null,smooth=null,samples=[];
+let handPoints=null,handLast=0,handSeen=0,handLoad=null,handFlick=0,handSide=0,handPrev=null,handInitToken=0,handHist=[],handBase=null,visionFiles=null;
+const HAND_CROP=256,handCrop=document.createElement('canvas');handCrop.width=handCrop.height=HAND_CROP;const hcg=handCrop.getContext('2d');
+const SKIN={light:['#ffdbb7','#e8b993'],warm:['#efb78f','#ce9671'],medium:['#b97c55','#945b3c'],deep:['#875236','#6e3b27'],dark:['#543629','#39241e']};
+const skinLum=hex=>{const n=parseInt(hex.slice(1),16);return .2126*(n>>16&255)/255+.7152*(n>>8&255)/255+.0722*(n&255)/255};   // 0 = black, 1 = white
+let playerLook={hair:'short',skin:'warm'};
+function setLook(kind,value){
+  playerLook[kind]=value;
+  const ids=kind==='hair'?['introHair','hairStyle']:['introSkin','skinTone'];
+  ids.forEach(id=>$(id).value=value);
+  try{localStorage.setItem('shotlab-'+kind,value)}catch(e){}
+}
+['hair','skin'].forEach(kind=>{
+  const ids=kind==='hair'?['introHair','hairStyle']:['introSkin','skinTone'];
+  ids.forEach(id=>$(id).onchange=e=>setLook(kind,e.target.value));
+  let saved=null;try{saved=localStorage.getItem('shotlab-'+kind)}catch(e){}
+  setLook(kind,kind==='hair'?(saved==='long'?'long':'short'):(SKIN[saved]?saved:'warm'));
+});
+let state='idle',phaseNote='',loadedAt=0,lastShot=0;
+let releaseDebug={up:0,side:0,depth:0,aim:0}; // Measured movement from last real shot
+let shots=0,made=0,streak=0,best=0,ball=null,loose=[],particles=[],lastPath=null;
+let netSway=0,burst=0,shake=0,lastFrame=performance.now(),pending=null,shotAnim=null,loadK=0,view='side',aimLat=0,aimYaw=0,loadInfo=null,recentWrist=null,currentAimPx=0,lastMissKind='',missRun=0;
+let shotEvents=[],lastInfer=0,inferInterval=40,frameCount=0,fpsStart=0;
+
+/* =========================================================
+   Look (Arcade / Realistic)
+   ========================================================= */
+let theme='arcade';
+try{if(localStorage.getItem('shotlab-theme')==='real')theme='real'}catch(e){}
+function setTheme(t){
+  theme=t;document.body.dataset.theme=t;
+  try{localStorage.setItem('shotlab-theme',t)}catch(e){}
+  document.querySelectorAll('[data-theme-btn]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeBtn===t)));
+}
+document.querySelectorAll('[data-theme-btn]').forEach(b=>b.onclick=()=>setTheme(b.dataset.themeBtn));
+setTheme(theme);
+function setView(v){
+  view=v;document.body.dataset.view=v;
+  try{localStorage.setItem('shotlab-view',v)}catch(e){}
+  document.querySelectorAll('[data-view-btn]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.viewBtn===v)));
+  particles=[];
+}
+document.querySelectorAll('[data-view-btn]').forEach(b=>b.onclick=()=>setView(b.dataset.viewBtn));
+let storedView='side';try{storedView=localStorage.getItem('shotlab-view')==='pov'?'pov':'side'}catch(e){}
+setView(storedView);
+
+/* =========================================================
+   Sound (tiny synth, no files)
+   ========================================================= */
+let ac=null;
+function audio(){
+  if(!ac){try{ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){return null}}
+  if(ac.state==='suspended')ac.resume();
+  return ac;
+}
+document.addEventListener('pointerdown',()=>audio(),{once:true}); // unlock on first tap
+const soundOn=()=>$('sound').checked;
+function beep(freq,start,dur,type,vol,slideTo){
+  const a=audio();if(!a)return;const t=a.currentTime+start,o=a.createOscillator(),gn=a.createGain();
+  o.type=type;o.frequency.setValueAtTime(freq,t);if(slideTo)o.frequency.exponentialRampToValueAtTime(slideTo,t+dur);
+  gn.gain.setValueAtTime(vol,t);gn.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  o.connect(gn).connect(a.destination);o.start(t);o.stop(t+dur+.03);
+}
+function noise(start,dur,vol,f0,f1){
+  const a=audio();if(!a)return;const t=a.currentTime+start,n=Math.floor(a.sampleRate*dur),buf=a.createBuffer(1,n,a.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<n;i++)d[i]=Math.random()*2-1;
+  const s=a.createBufferSource();s.buffer=buf;const f=a.createBiquadFilter();f.type='bandpass';f.Q.value=.9;
+  f.frequency.setValueAtTime(f0,t);f.frequency.exponentialRampToValueAtTime(f1,t+dur);
+  const gn=a.createGain();gn.gain.setValueAtTime(vol,t);gn.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  s.connect(f).connect(gn).connect(a.destination);s.start(t);
+}
+const sfx={
+  release(){if(!soundOn())return;theme==='arcade'?beep(320,0,.1,'square',.045,760):noise(0,.2,.06,600,2200)},
+  make(){if(!soundOn())return;if(theme==='arcade'){[523,659,784,1047].forEach((f,i)=>beep(f,i*.07,.13,'square',.045))}else noise(0,.45,.1,3800,900)},
+  miss(){if(!soundOn())return;if(theme==='arcade')beep(240,0,.3,'sawtooth',.05,80);else{beep(190,0,.14,'triangle',.14,90);noise(0,.1,.05,400,200)}},
+  clank(){if(!soundOn())return;theme==='arcade'?beep(520,0,.08,'square',.04,260):beep(300,0,.1,'triangle',.1,140)}
+};
+
+/* =========================================================
+   UI helpers
+   ========================================================= */
+function say(s){$('feedback').textContent=s}
+const LABELS={idle:'Bend your elbow a little',loaded:'Loaded. Lift your wrist',flight:'Ball in the air',cooldown:'Reset your arm'};
+function refreshPhase(){
+  $('phase').textContent=phaseNote||(live?LABELS[state]:'Camera off');
+  $('camCard').dataset.state=live?state:'off';
+}
+function setState(s){state=s;refreshPhase()}
+function note(s){phaseNote=s;refreshPhase()}
+function renderStats(){
+  $('made').textContent=made;$('attempts').textContent=shots;
+  $('pct').textContent=shots?Math.round(made/shots*100)+'%':'0%';
+  $('streak').textContent=streak;
+  $('streakNote').textContent=streak>=3?'Hot streak':'Best '+best;
+  $('streakCell').classList.toggle('hot',streak>=3);
+}
+function callout(main,sub,kind){
+  const el=$('callout');el.className='callout';void el.offsetWidth;
+  $('calloutMain').textContent=main;$('calloutSub').textContent=sub||'';el.classList.add('show',kind);
+}
+function reset(){
+  shots=made=streak=best=0;shotEvents=[];ball=null;pending=null;shotAnim=null;loadK=0;loose=[];particles=[];lastPath=null;loadInfo=null;samples=[];handFlick=0;handLoad=null;handPrev=null;handHist=[];handBase=null;releaseDebug={up:0,side:0,depth:0,aim:0};
+  $('csv').disabled=true;$('shotData').textContent='Last shot: none';
+  $('callout').className='callout';renderStats();setState('idle');say('Ready for a new session.');
+}
+$('reset').onclick=reset;
+$('strength').oninput=()=>{$('strengthVal').textContent=$('strength').value+'%'};
+$('demoLeft').onclick=()=>{hideIntro();shoot(55,1,yawFromPx(-125))};
+$('demoRight').onclick=()=>{hideIntro();shoot(55,1,yawFromPx(125))};
+
+// Intro card, arm picker, camera inset, setup sheet
+const intro=$('intro'),hideIntro=()=>{intro.hidden=true};
+$('introStart').onclick=()=>{hideIntro();$('start').click()};
+$('introDemo').onclick=()=>{hideIntro();$('demo').click()};
+function syncHandBtns(){document.querySelectorAll('[data-hand]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.hand===$('hand').value)))}
+document.querySelectorAll('[data-hand]').forEach(b=>b.onclick=()=>{$('hand').value=b.dataset.hand;$('hand').dispatchEvent(new Event('change'))});
+$('hand').onchange=()=>{smooth=null;samples=[];handPoints=null;handLoad=null;handPrev=null;handFlick=0;handHist=[];handBase=null;syncHandBtns();setState('idle')};
+const camBox=$('camBox'),toggleCam=()=>$('camCard').classList.toggle('big');
+camBox.onclick=toggleCam;camBox.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleCam()}};
+const sheet=$('sheet');
+function toggleSheet(open){sheet.classList.toggle('open',open);sheet.inert=!open;$('setupBtn').setAttribute('aria-expanded',String(open));if(open)$('closeSheet').focus();else $('setupBtn').focus()}
+$('setupBtn').onclick=()=>toggleSheet(!sheet.classList.contains('open'));
+$('closeSheet').onclick=()=>toggleSheet(false);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sheet.classList.contains('open'))toggleSheet(false)});
+
+// Full screen (with Safari prefix fallback)
+const shell=$('shell'),fsEl=()=>document.fullscreenElement||document.webkitFullscreenElement;
+const reqFs=shell.requestFullscreen||shell.webkitRequestFullscreen;
+if(!reqFs)$('fullscreenBtn').style.display='none';
+$('fullscreenBtn').onclick=async()=>{
+  try{if(fsEl()===shell)await (document.exitFullscreen||document.webkitExitFullscreen).call(document);else await reqFs.call(shell)}
+  catch(e){say('Full screen is not available in this browser.')}
+};
+const onFs=()=>{$('fullscreenBtn').textContent=fsEl()===shell?'Exit full screen':'Full screen'};
+document.addEventListener('fullscreenchange',onFs);document.addEventListener('webkitfullscreenchange',onFs);
+
+$('trackingMode').value=/iPad|iPhone|iPod|Macintosh.*Mobile/i.test(navigator.userAgent)?'smooth':'standard';
+
+/* =========================================================
+   Camera + MediaPipe
+   ========================================================= */
+function syncCamSize(){
+  const vw=video.videoWidth||640,vh=video.videoHeight||360;
+  overlay.width=vw;overlay.height=vh;camBox.style.setProperty('--ar',vw+'/'+vh);
+}
+video.addEventListener('loadedmetadata',syncCamSize);
+
+$('demo').onclick=()=>{
+  hideIntro();
+  // ~58 degrees at ~99% power drops into the hoop; a little jitter keeps it from being a sure thing.
+  shoot(55+(Math.random()-.5)*8,1+(Math.random()-.5)*.07,yawFromPx((Math.random()-.5)*50));   // mostly makes, with a few misses (sideways jitter stays inside the hoop window)
+};
+
+$('start').onclick=async()=>{
+  hideIntro();
+  if(live){stop();return}
+  const btn=$('start');btn.disabled=true;btn.textContent='Loading…';$('errorHelp').hidden=true;
+  try{
+    if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera access requires HTTPS.');
+    const smoothMode=$('trackingMode').value==='smooth';inferInterval=smoothMode?70:42;
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:smoothMode?24:30}},audio:false});
+    video.srcObject=stream;await video.play();syncCamSize();
+    $('cammsg').classList.add('hidden');$('tracking').textContent='Loading model…';
+    const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm');visionFiles=vision;
+    const opt={baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',delegate:$('delegateMode').value},runningMode:'VIDEO',numPoses:1,minPoseDetectionConfidence:0.5,minTrackingConfidence:0.5};
+    try{tracker=await PoseLandmarker.createFromOptions(vision,opt)}
+    catch(err){console.warn('GPU fallback',err);opt.baseOptions.delegate='CPU';tracker=await PoseLandmarker.createFromOptions(vision,opt)}
+    live=true;btn.textContent='Stop camera';$('tracking').textContent='Tracking';$('statusDot').classList.add('active');
+    setState('idle');say('Camera on. Elbow launches; fingers refine your shot.');
+    if($('handMode').value!=='off')setTimeout(()=>initHands(),350);
+  }catch(e){
+    console.error(e);say('Camera or model failed to start.');
+    const box=$('errorHelp');
+    box.textContent='Could not start tracking: '+e.message+' Allow camera access for this HTTPS page and make sure cdn.jsdelivr.net and storage.googleapis.com are reachable. If the console reports script-src or unsafe-eval, see the README troubleshooting section.';
+    box.hidden=false;stop();
+  }finally{btn.disabled=false;if(!live)btn.textContent='Enable camera'}
+};
+function stop(){
+  ++handInitToken;live=false;stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;tracker?.close();tracker=null;handTracker?.close();handTracker=null;handPoints=null;handPrev=null;handLoad=null;handFlick=0;handSide=0;handLast=0;
+  landmarks=null;smooth=null;samples=[];loadInfo=null;recentWrist=null;phaseNote='';og.clearRect(0,0,overlay.width,overlay.height);
+  $('cammsg').classList.remove('hidden');$('tracking').textContent='Camera off';$('statusDot').classList.remove('active');
+  $('angle').textContent='—°';$('velocity').textContent='—';$('extendBar').style.width='0%';$('velocityBar').style.width='0%';aimLat=0;aimYaw=0;updateAimUI();
+  $('fingerStatus').textContent='Pose only';$('fingerBar').style.width='0%';
+  $('start').textContent='Enable camera';setState('idle');
+}
+
+function elbowAngle(s,e,w){
+  const aspect=(video.videoHeight||480)/(video.videoWidth||640);
+  const a={x:s.x-e.x,y:(s.y-e.y)*aspect},b={x:w.x-e.x,y:(w.y-e.y)*aspect};
+  return Math.acos(clamp((a.x*b.x+a.y*b.y)/(Math.hypot(a.x,a.y)*Math.hypot(b.x,b.y)+1e-8),-1,1))*180/Math.PI;
+}
+
+/* =========================================================
+   Optional hand pass (one extra model, throttled independently).
+   The pose detector always owns shot triggering. Hand observations
+   only refine a shot during the short release animation.
+   ========================================================= */
+async function initHands(){
+  if(!live||handTracker||$('handMode').value==='off')return;
+  const token=++handInitToken;
+  $('fingerStatus').textContent='Loading hand…';
+  try{
+    const files=visionFiles||await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm');
+    const opts={baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',delegate:$('delegateMode').value},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.45,minHandPresenceConfidence:.45,minTrackingConfidence:.45};
+    let candidate;
+    try{candidate=await HandLandmarker.createFromOptions(files,opts)}catch(e){opts.baseOptions.delegate='CPU';candidate=await HandLandmarker.createFromOptions(files,opts)}
+    if(!live||token!==handInitToken||$('handMode').value==='off'){candidate.close();return}
+    handTracker=candidate;$('fingerStatus').textContent='Finding hand';
+  }catch(err){console.warn('Hand Landmarker unavailable; pose-only fallback',err);$('fingerStatus').textContent='Hand unavailable';}
+}
+$('handMode').onchange=()=>{
+  handTracker?.close();handTracker=null;handPoints=null;handLoad=null;handPrev=null;handFlick=0;handSide=0;handLast=0;handHist=[];handBase=null;++handInitToken;
+  if(live&&$('handMode').value!=='off')initHands();
+  else $('fingerStatus').textContent='Pose only';
+};
+function handMeasure(points,t){
+  if(!points?.length)return;
+  // Two image-space features: index/middle finger extension from the MCP and sideways fingertip motion relative to the wrist.
+  // Distances are aspect-corrected (y is scaled to x units) so a finger pointing up counts the same as one pointing sideways,
+  // and divided by hand size to reduce distance-to-camera effects.
+  const ar=(video.videoHeight||480)/(video.videoWidth||640);
+  const d2=(a,b)=>Math.hypot(a.x-b.x,(a.y-b.y)*ar);
+  const wrist=points[0],index=points[8],middle=points[12],knuckle=points[5],pinky=points[17];
+  const size=Math.max(.035,d2(knuckle,pinky));
+  const ext=(d2(index,knuckle)+d2(middle,points[9]))/(2*size);
+  const side=(index.x-wrist.x)/size;
+  const z=(index.z-wrist.z); // Relative depth is a *noisy* monocular estimate
+  const obs={t,ext,side,z};
+  if(!handLoad)handLoad=obs;
+  if(handPrev&&t-handPrev.t<450){
+    const dt=Math.max(.03,(t-handPrev.t)/1000);
+    const extensionRate=(ext-handPrev.ext)/dt;
+    const sideRate=(side-handPrev.side)/dt;
+    // Flick can be a brief extension OR an index-fingertip forward move.
+    // We explicitly avoid interpreting a single noisy z estimate as force.
+    const depthShift=handLoad.z-z;
+    const flick=clamp(Math.max(0,(ext-handLoad.ext)*.9,extensionRate*.055,depthShift*1.7),0,1.1);
+    handFlick=Math.max(handFlick,flick);
+    handSide=clamp(handSide*.75+clamp(sideRate,-6,6)*.25,-4,4);
+    handHist.push({t,flick});if(handHist.length>14)handHist.shift();   // per-observation history, so release can look only at the last ~0.5 s
+  }
+  handPrev=obs;handSeen=t;
+  $('fingerStatus').textContent='Tracked · flick '+Math.round(handFlick*100)+'%';
+  $('fingerBar').style.width=clamp(handFlick*100,0,100)+'%';
+}
+function inferHands(t){
+  if(!handTracker||$('handMode').value==='off'||!video.videoWidth)return;
+  // The hand only matters while a shot is loaded and being released, so the second model sleeps the rest of the time.
+  const active=state==='loaded'||(pending&&t-pending.triggerAt<320);
+  if(!active)return;
+  const interval=$('handMode').value==='fast'?90:130;
+  if(t-handLast<interval)return;
+  handLast=t;
+  try{
+    const vw=video.videoWidth,vh=video.videoHeight,wristID=$('hand').value==='right'?16:15,target=landmarks?.[wristID];
+    let source=video,rect=null;
+    if($('handSearch').value==='crop'&&target){
+      // Search a square window around the wrist instead of the whole frame: a hand a few metres away is only ~6% of a
+      // 640x480 frame but fills a quarter of this window. A little extra room above the wrist, where the fingers are.
+      const sh=Math.hypot((landmarks[11].x-landmarks[12].x)*vw,(landmarks[11].y-landmarks[12].y)*vh);
+      const size=clamp(sh*1.25,160,Math.min(vw,vh));
+      const x=clamp(target.x*vw-size/2,0,vw-size),y=clamp(target.y*vh-size*.62,0,vh-size);
+      hcg.drawImage(video,x,y,size,size,0,0,HAND_CROP,HAND_CROP);
+      source=handCrop;rect={x,y,size};
+    }
+    const result=handTracker.detectForVideo(source,t);
+    let hands=result.landmarks||[];
+    if(rect)hands=hands.map(h=>h.map(p=>({x:(rect.x+p.x*rect.size)/vw,y:(rect.y+p.y*rect.size)/vh,z:p.z*rect.size/vw})));   // back to full-frame coordinates
+    let best=null,distance=Infinity;
+    for(const h of hands){const d=target?Math.hypot(h[0].x-target.x,h[0].y-target.y):0;if(d<distance){distance=d;best=h;}}
+    handPoints=best&&distance<.24?best:null;
+    if(handPoints)handMeasure(handPoints,t);
+    else if(t-handSeen>450){$('fingerStatus').textContent='Hand not visible';$('fingerBar').style.width='0%';}
+  }catch(err){console.warn('Hand tracking inference failed',err);handTracker?.close();handTracker=null;handPoints=null;$('fingerStatus').textContent='Hand unavailable';}
+}
+function refineRelease(p,t){
+  if(!p?.fromPose||p.refined)return;
+  // The hand model refines, it never decides. Only observations from the ~0.5 s before release count, and the flick is judged
+  // against THIS player's usual flick: a typical shot keeps its pose-based power whether or not the model sees the hand well,
+  // so a hand that is visible but still does not make shots shorter than a hand that is hidden.
+  const recent=handHist.filter(o=>o.t>=p.triggerAt-480);
+  const validHand=$('handMode').value!=='off'&&handTracker&&recent.length>=2&&t-handSeen<280;
+  const flick=validHand?clamp(Math.max(...recent.map(o=>o.flick)),0,1):0;
+  const base=handBase??flick;
+  const multiplier=validHand?clamp(1+.5*(flick-base),.84,1.16):1;
+  if(validHand)handBase=handBase==null?flick:lerp(handBase,flick,.3);
+  const baseSpeed=Math.hypot(p.vx,p.vy)*multiplier;
+  const oldAngle=Math.atan2(-p.vy,p.vx);
+  p.vx=baseSpeed*Math.cos(oldAngle);p.vy=-baseSpeed*Math.sin(oldAngle);
+  // Small sideways finger wobble is ignored; only a clear drift counts, and it can move the ball only a little.
+  const drift=Math.abs(handSide)<1.4?0:handSide-Math.sign(handSide)*1.4;
+  const lateralDelta=validHand?clamp(-drift*10,-30,30):0;
+  const finalYaw=p.yaw+yawFromPx(lateralDelta);
+  p.vlat=p.vx*Math.tan(finalYaw*Math.PI/180);
+  if(shotEvents.length){const event=shotEvents[shotEvents.length-1];event.hand_flick=validHand?Math.round(flick*100):'unavailable';event.hand_typical=validHand?Math.round(base*100):'';event.finger_adjusted_power_pct=Math.round(p.power*multiplier*100);event.final_aim_deg=Math.round(finalYaw);}
+  $('shotData').textContent+=validHand?` · finger flick ${Math.round(flick*100)}% (your usual ${Math.round(base*100)}%)`:' · pose only';
+  p.refined=true;
+}
+
+/* =========================================================
+   Gesture -> measured launch. One Pose Landmarker only.
+
+   Detection is forgiving, but the ball's flight is NOT auto corrected.
+   A short release window avoids deciding power/aim on the first
+   extending frame. All displacement and velocity features are
+   normalized by shoulder width to reduce camera-distance effects.
+   ========================================================= */
+const ACTION={
+  low:   {load:148,extension:24,travel:.19,up:.85,releaseAngle:148},
+  normal:{load:157,extension:19,travel:.13,up:.60,releaseAngle:140},
+  high:  {load:164,extension:13,travel:.09,up:.40,releaseAngle:131}
+};
+function aimFromArm(s,e,w,palm,sideSpeed,width,base){
+  // The camera preview is mirrored. Positive result means screen right.
+  // Subtract the arm's loaded pose, so a naturally tilted arm is not
+  // treated as an intentional left/right shot.
+  const forearm=(w.x-e.x)/width;
+  const shoulderHand=(w.x-s.x)/width;
+  const hand=palm?clamp((palm.x-w.x)/width,-.45,.45):0;
+  const deltaForearm=base?forearm-base.forearm:0;
+  const deltaShoulder=base?shoulderHand-base.shoulderHand:0;
+  const deltaHand=base?hand-base.hand:0;
+  const combined=.24*deltaForearm+.46*deltaShoulder+.22*deltaHand+.28*clamp(sideSpeed,-3.5,3.5);
+  // Small tremors should not alter aim, but deliberate lateral motion should.
+  const corrected=Math.sign(combined)*Math.max(0,Math.abs(combined)-.035);
+  return clamp(-corrected*($('difficulty').value==='form'?210:140),-195,195);
+}
+const yawFromPx=px=>Math.atan2(px,HZ)*180/Math.PI;
+function poseUpdate(t){
+  if(!live||!tracker||video.readyState<2||video.currentTime===lastVideoTime||t-lastInfer<inferInterval)return;
+  lastInfer=t;lastVideoTime=video.currentTime;
+  let out;try{out=tracker.detectForVideo(video,t)}catch(e){console.warn(e);return}
+  landmarks=out.landmarks?.[0]||null;
+  if(landmarks)inferHands(t);
+  frameCount++;if(!fpsStart)fpsStart=t;
+  if(t-fpsStart>1200){$('tracking').textContent='Tracking '+Math.round(frameCount*1000/(t-fpsStart))+' fps';frameCount=0;fpsStart=t}
+
+  const OW=overlay.width,OH=overlay.height,px=OW/Math.max(120,camBox.clientWidth||216);
+  og.clearRect(0,0,OW,OH);
+  if(!landmarks){
+    note('No player in view');$('angle').textContent='—°';$('velocity').textContent='—';
+    samples=[];smooth=null;loadInfo=null;recentWrist=null;aimYaw=0;currentAimPx=0;updateAimUI();
+    if(!ball&&!pending)setState('idle');return;
+  }
+  const right=$('hand').value==='right',ids=right?[12,14,16]:[11,13,15];
+  const raw=ids.map(i=>landmarks[i]);
+  if(raw.some(p=>!p||(p.visibility??1)<.36)){
+    note('Arm hidden. Step back or turn');samples=[];loadInfo=null;smooth=null;recentWrist=null;
+    if(!ball&&!pending)setState('idle');return;
+  }
+  note('');
+  // Lightly smooth position to suppress landmark flicker. Derivatives
+  // are calculated across a time window, not by subtracting two frames.
+  if(!smooth)smooth=raw.map(p=>({...p}));
+  else for(let i=0;i<3;i++){
+    smooth[i].x=lerp(smooth[i].x,raw[i].x,.66);
+    smooth[i].y=lerp(smooth[i].y,raw[i].y,.66);
+  }
+  const [s,e,w]=smooth,angle=elbowAngle(s,e,w);
+  const ar=(video.videoHeight||480)/(video.videoWidth||640);
+  const width=Math.max(.065,Math.hypot(landmarks[11].x-landmarks[12].x,(landmarks[11].y-landmarks[12].y)*ar));
+  const fingers=(right?[18,20,22]:[17,19,21]).map(i=>landmarks[i]).filter(p=>p&&(p.visibility??1)>.45&&Math.hypot(p.x-w.x,(p.y-w.y)*ar)<.25);
+  const palm=fingers.length>=2?{x:fingers.reduce((a,p)=>a+p.x,0)/fingers.length,y:fingers.reduce((a,p)=>a+p.y,0)/fingers.length}:null;
+  const relX=w.x-s.x,relY=(w.y-s.y)*ar;
+  samples.push({t,x:relX,y:relY});
+  while(samples.length>2&&t-samples[0].t>310)samples.shift();
+  // Compare to a frame ~125 ms earlier for stable velocity estimates.
+  const old=[...samples].reverse().find(q=>t-q.t>=105)||samples[0];
+  const dt=(t-old.t)/1000;
+  const side=dt>.055?clamp((relX-old.x)/dt/width,-5,5):0;
+  const up=dt>.055?clamp((old.y-relY)/dt/width,-1.5,6):0;
+  const speed=Math.hypot(side,up);
+  $('angle').textContent=Math.round(angle)+'°';
+  $('extendBar').style.width=clamp((angle-65)/110*100,0,100)+'%';
+  $('velocity').textContent=speed.toFixed(2)+' /s';
+  $('velocityBar').style.width=clamp(speed/4*100,0,100)+'%';
+  const forearm=(w.x-e.x)/width,shoulderHand=relX/width;
+  const hand=palm?clamp((palm.x-w.x)/width,-.45,.45):0;
+
+  const cfg=ACTION[$('sensitivity').value];
+  const ready=!ball&&!pending&&(t-lastShot>450);
+  if((state==='cooldown'||state==='flight')&&ready)setState('idle');
+  // Require the player to bend again for each new release.
+  if(state==='idle'&&ready&&angle<cfg.load&&up<2.0){
+    handLoad=null;handPrev=null;handFlick=0;handSide=0;handHist=[];handLast=0;   // handLast=0: look for the hand right away
+    loadInfo={start:t,minAngle:angle,startY:relY,base:{forearm,shoulderHand,hand},
+      peakUp:0,peakSide:0,peakTravel:0,candidateAt:0,candidate:null};
+    setState('loaded');
+  }
+  if(state==='loaded'&&loadInfo){
+    const l=loadInfo;
+    l.minAngle=Math.min(l.minAngle,angle);
+    const travel=(l.startY-relY)/width,extension=angle-l.minAngle;
+    if(up>l.peakUp){l.peakUp=up;l.peakSide=side;}
+    l.peakTravel=Math.max(l.peakTravel,travel);
+    const aim=aimFromArm(s,e,w,palm,side,width,l.base);
+    const forearmTilt=Math.atan2((e.y-w.y)*ar,Math.abs(w.x-e.x)+1e-5)*180/Math.PI;
+    // A visible change in forearm tilt changes the arc. No ideal-angle correction.
+    const theta=clamp(38+.30*forearmTilt+clamp(up-1.4,-2,3)*1.5,35,74);
+    const depth=clamp((cfg.load-l.minAngle)/75,0,1.15);
+    // The speed is driven mainly by observed wrist rise, with a smaller
+    // contribution from loading depth. The full scale deliberately admits misses.
+    const effort=clamp((l.peakUp-.35)/3.3,0,1.35);
+    const power=clamp((.67+.25*effort+.14*depth)*$('strength').value/100,.40,1.42);
+    const qualifies=extension>=cfg.extension&&angle>=cfg.releaseAngle&&
+      l.peakTravel>=cfg.travel&&l.peakUp>=cfg.up;
+    if(!l.candidateAt&&qualifies){l.candidateAt=t;l.candidate={theta,power,aim,up:l.peakUp,side,angle};}
+    if(l.candidateAt){
+      // Keep recent movement values rather than freezing on the first
+      // frame where the threshold happened to be crossed.
+      const c=l.candidate;
+      c.theta=theta;c.power=power;c.aim=aim;c.up=l.peakUp;c.side=side;c.angle=angle;
+      if(t-l.candidateAt>=115 || (t-l.candidateAt>=65&&up<l.peakUp*.60)){
+        const yaw=yawFromPx(c.aim),minAngle=l.minAngle;
+        releaseDebug={up:c.up,side:c.side,depth,aim:c.aim};
+        loadInfo=null;
+        shoot(c.theta,c.power,yaw,minAngle);
+      }
+    }else if(t-l.start>3300){loadInfo=null;setState('idle');}
+  }
+  // Live aim is derived from the loaded reference, not auto-centered.
+  currentAimPx=loadInfo?aimFromArm(s,e,w,palm,side,width,loadInfo.base):(ball||pending?releaseDebug.aim:0);
+  aimYaw=yawFromPx(currentAimPx);updateAimUI();
+
+  // Preserve the existing camera inset and skeleton aesthetics.
+  if(!$('showPose').checked)return;
+  og.lineCap='round';og.lineJoin='round';
+  og.lineWidth=2*px;og.strokeStyle='rgba(120,235,190,.8)';
+  for(const [a,b] of [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24]]){
+    const p=landmarks[a],q=landmarks[b];if((p.visibility??1)<.35||(q.visibility??1)<.35)continue;
+    og.beginPath();og.moveTo(p.x*OW,p.y*OH);og.lineTo(q.x*OW,q.y*OH);og.stroke();
+  }
+  og.strokeStyle=state==='loaded'?'#ffd43b':'#7fd8ff';og.lineWidth=3.2*px;
+  og.beginPath();og.moveTo(s.x*OW,s.y*OH);og.lineTo(e.x*OW,e.y*OH);og.lineTo(w.x*OW,w.y*OH);og.stroke();
+  og.strokeStyle='#83dfff';og.lineWidth=1.4*px;
+  for(const f of fingers){og.beginPath();og.moveTo(w.x*OW,w.y*OH);og.lineTo(f.x*OW,f.y*OH);og.stroke();og.fillStyle='#83dfff';og.beginPath();og.arc(f.x*OW,f.y*OH,2*px,0,Math.PI*2);og.fill();}
+  if(handPoints&&t-handSeen<300&&$('handMode').value!=='off'){
+    const joints=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+    og.strokeStyle='#ffd43b';og.lineWidth=1.6*px;
+    for(const [a,b] of joints){const pa=handPoints[a],pb=handPoints[b];og.beginPath();og.moveTo(pa.x*OW,pa.y*OH);og.lineTo(pb.x*OW,pb.y*OH);og.stroke();}
+    for(const h of handPoints){og.beginPath();og.arc(h.x*OW,h.y*OH,1.65*px,0,Math.PI*2);og.fillStyle='#fff6e5';og.fill();}
+  }
+  for(const p of [s,e,w]){og.fillStyle=p===w?'#ffb45f':'#eaf6ff';og.beginPath();og.arc(p.x*OW,p.y*OH,(p===w?4.5:3)*px,0,Math.PI*2);og.fill()}
+  og.save();og.translate(e.x*OW,e.y*OH);og.scale(-1,1);
+  og.font=`700 ${12*px}px Barlow,system-ui,sans-serif`;og.lineWidth=3*px;og.strokeStyle='rgba(0,0,0,.7)';og.fillStyle='#fff';
+  og.strokeText(Math.round(angle)+'°',8*px,-8*px);og.fillText(Math.round(angle)+'°',8*px,-8*px);og.restore();
+}
+
+/* =========================================================
+   Shots
+   ========================================================= */
+function shoot(angle,power,yaw=0,loadDeg=''){
+  if(ball||pending)return;
+  const now=performance.now(),fromPose=state==='loaded'&&live,pov=view==='pov',yw=yaw;
+  shots++;lastShot=now;
+  shotEvents.push({shot:shots,at:new Date().toISOString(),arm:$('hand').value,view,release_angle_deg:Math.round(angle),aim_deg:Math.round(yw),power_pct:Math.round(power*100),load_elbow_deg:loadDeg===''?'':Math.round(loadDeg),elbow_angle_deg:$('angle').textContent,wrist_speed:$('velocity').textContent,result:'pending'});
+  $('csv').disabled=false;
+  const rad=angle*Math.PI/180,speed=SHOT_SPEED*power,vf=speed*Math.cos(rad);
+  shotAnim={t0:now,gather:!fromPose,from:loadK};loadK=0;
+  pending={at:now+((fromPose?0:T_GATHER)+T_REL)*1000,vx:vf,vy:-speed*Math.sin(rad),vlat:vf*Math.tan(yw*Math.PI/180),yaw:yw,power,triggerAt:now,fromPose,refined:false};
+  lastPath=null;
+  const aimTxt=Math.abs(Math.round(yw))<1?', centered':', '+Math.abs(Math.round(yw))+'° '+(yw<0?'left':'right');
+  $('shotData').textContent=`Last shot: ${Math.round(angle)}° · ${Math.round(power*100)}% power${aimTxt}${fromPose?' · wrist '+releaseDebug.up.toFixed(1)+'/s':''}`;
+  renderStats();say('Shot released!');setState('flight');
+}
+
+function endShot(success){
+  const b=ball;if(!b||b.done)return;b.done=true;b.doneAt=b.alive;b.scored=success;
+  const last=shotEvents[shotEvents.length-1];
+  if(last)last.result=success?'made':'missed';
+  const sub=last?`${last.release_angle_deg}° release, ${last.power_pct}% power`+(Math.abs(last.aim_deg)>=1?`, ${Math.abs(last.aim_deg)}° ${last.aim_deg<0?'left':'right'}`:''):'';
+  let title;
+  if(success){
+    made++;streak++;best=Math.max(best,streak);netSway=1;burst=1;shake=1;lastMissKind='';missRun=0;
+    const off=Math.hypot((b.crossX??hoop.cx)-hoop.cx,b.crossLat||0);
+    title=b.hitBoard?'Bank shot!':b.hitRim?'Rattles in!':(off<14?'Swish!':'Bucket!');
+    say(title+' Nice shot.');sfx.make();
+    if(theme==='arcade'){
+      const cols=['#ffd43b','#ff3c8e','#34e5ff','#fff6e5'],ox=view==='pov'?HP.cx:hoop.cx,oy=view==='pov'?HP.cy:rim.y;
+      for(let i=0;i<44;i++)particles.push({x:ox,y:oy,vx:(Math.random()-.5)*480,vy:-120-Math.random()*340,life:1.2,col:cols[i%4],rot:Math.random()*6,vr:(Math.random()-.5)*14,s:5+Math.random()*4});
+    }
+  }else{
+    streak=0;
+    const cx=b.crossX,cl=b.crossLat||0;
+    if(b.hitRim)title='Rim out!';
+    else if(cx!==undefined){
+      const dx=cx-hoop.cx,d=Math.hypot(dx,cl)-rimWin();
+      title=d<50?'So close!':(Math.abs(cl)>Math.abs(dx)?(cl<0?'Wide left':'Wide right'):(dx<0?'Short':'Long'));
+    }else title=Math.abs(b.lat)>110?(b.lat<0?'Wide left':'Wide right'):(b.x<500?'Air ball':(b.x<rim.x+16?'Short':'Long'));
+    const kind=(title==='Short'||title==='Long')?title:'';
+    missRun=kind&&kind===lastMissKind?missRun+1:(kind?1:0);lastMissKind=kind;
+    if(missRun>=2)say(kind==='Long'?'Long again. Use a softer flick, or lower Shot strength in Setup.':'Short again. Load deeper, or raise Shot strength in Setup.');
+    else say(({'Short':'Short! Try a deeper elbow bend.','Long':'Long! Use a softer flick.','Wide left':'Missed left. Keep the arm aligned.','Wide right':'Missed right. Keep the arm aligned.','Rim out!':'Rim out! Try adjusting your aim.','So close!':'So close! Small adjustment.','Air ball':'Air ball. Load deeper, then flick up.'})[title]||title);
+    sfx.miss();
+  }
+  lastPath={pts:b.path,ok:success};
+  renderStats();callout(title,sub,success?'make':'miss');setState('cooldown');
+}
+
+function update(dt,now){
+  loadK+=(((state==='loaded'&&live&&!shotAnim)?1:0)-loadK)*Math.min(1,dt*9);   // avatar lifts to the set point while you are loaded
+  if(shotAnim&&now-shotAnim.t0>((shotAnim.gather?T_GATHER:0)+1.5)*1000)shotAnim=null;
+  if(pending&&now>=pending.at){   // ball leaves the fingertips
+    refineRelease(pending,now);
+    const p=view==='pov'?{x:release.x,y:271}:computePose(now).B;
+    ball={x:p.x,y:p.y,lat:0,vx:pending.vx,vy:pending.vy,vlat:pending.vlat||0,r:15,alive:0,doneAt:0,done:false,scored:false,hitBoard:false,hitRim:false,crossX:undefined,crossLat:0,rot:0,spin:-7,trail:[],path:[]};
+    pending=null;lastPath=null;sfx.release();
+  }
+  if(ball){
+    const b=ball;b.alive+=dt;
+    const py=b.y,pxx=b.x,pl=b.lat;
+    b.vy+=GRAV*dt;b.x+=b.vx*dt;b.y+=b.vy*dt;b.lat+=b.vlat*dt;b.rot+=b.spin*dt;
+    b.trail.push({x:b.x,y:b.y,lat:b.lat});if(b.trail.length>26)b.trail.shift();
+    if(!b.done||b.alive-b.doneAt<.02)b.path.push({x:b.x,y:b.y,lat:b.lat});
+
+    // Backboard: the ball bounces off the front face instead of passing through it.
+    if(!b.done&&b.vx>0&&b.x+b.r>board.x&&b.x-b.r<board.x+board.w&&Math.abs(b.lat)<board.hw+b.r*.5&&b.y>board.top&&b.y<board.bottom+b.r*.5){
+      b.x=board.x-b.r;b.vx*=-.5;b.vy*=.85;b.vlat*=.7;b.spin*=-.5;b.hitBoard=true;sfx.clank();
+    }
+    if(!b.done){
+      if(b.vy>0&&py<=rim.y&&b.y>=rim.y){
+        // Where did the ball cross rim height? Inside the 36-unit window = basket; on the rim ring = bounce.
+        const k=(rim.y-py)/((b.y-py)||1),cx=lerp(pxx,b.x,k),cl=lerp(pl,b.lat,k),dx=cx-hoop.cx,dist=Math.hypot(dx,cl);
+        b.crossX=cx;b.crossLat=cl;
+        if(dist<rimWin())endShot(true);
+        else if(dist<70){
+          const nx=dx/(dist||1),nl=cl/(dist||1);
+          b.y=rim.y-1;b.vy=-Math.abs(b.vy)*.42;b.vx=b.vx*.3+nx*135;b.vlat=b.vlat*.3+nl*135;b.hitRim=true;sfx.clank();
+        }
+      }
+      if(!b.done&&((b.y>FLOOR&&b.vy>0)||b.x>W+50||Math.abs(b.lat)>700||b.alive>3.4))endShot(false);
+    }
+    // A made ball drops through the net instead of sailing out the side.
+    if(b.scored&&b.y>rim.y&&b.y<rim.y+hoop.netLen+14){
+      b.vx=lerp(b.vx,0,Math.min(1,10*dt));b.x=lerp(b.x,hoop.cx,Math.min(1,6*dt));
+      b.vlat=lerp(b.vlat,0,Math.min(1,10*dt));b.lat=lerp(b.lat,0,Math.min(1,6*dt));
+    }
+    if(b.done&&((b.y>=FLOOR-b.r&&b.vy>0)||b.x>W+80||b.alive>b.doneAt+2.4)){
+      if(b.x<W+40)loose.push({x:b.x,y:Math.min(b.y,FLOOR-b.r),lat:b.lat,vx:b.vx*.6,vlat:b.vlat*.6,vy:-Math.abs(b.vy)*.45,r:b.r,rot:b.rot,spin:b.vx*.02,age:0});
+      ball=null;if(!live)setState('idle');
+    }
+  }
+  for(const l of loose){
+    l.age+=dt;l.vy+=GRAV*dt;l.x+=l.vx*dt;l.lat+=(l.vlat||0)*dt;l.y+=l.vy*dt;l.rot+=l.spin*dt;
+    if(l.y>FLOOR-l.r){l.y=FLOOR-l.r;l.vy*=-.55;l.vx*=.82;l.spin*=.8;if(Math.abs(l.vy)<40)l.vy=0}
+  }
+  loose=loose.filter(l=>l.age<2.2&&l.x<W+40);
+  for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=700*dt;p.rot+=p.vr*dt;p.life-=dt*1.1}
+  particles=particles.filter(p=>p.life>0);
+  netSway=Math.max(0,netSway-dt*1.1);burst=Math.max(0,burst-dt*1.6);shake=Math.max(0,shake-dt*6);
+}
+
+/* =========================================================
+   Rendering: static backdrops are painted once per look.
+   ========================================================= */
+function rr(x,a,b,w,h,r){x.beginPath();if(x.roundRect)x.roundRect(a,b,w,h,r);else x.rect(a,b,w,h)}
+function rng(seed){let s=seed;return()=>(s=(s*16807)%2147483647)/2147483647}
+
+function floorChecker(x,cA,cB){
+  const y0=560,rows=7,vx=450,vy=330,half=90,ys=[];
+  for(let i=0;i<=rows;i++)ys.push(y0+(H-y0)*Math.pow(i/rows,1.5));
+  const px=(j,y)=>vx+(j*half)*(y-vy)/(H-vy);
+  for(let i=0;i<rows;i++)for(let j=-14;j<14;j++){
+    x.fillStyle=((i+j)&1)?cA:cB;x.beginPath();
+    x.moveTo(px(j,ys[i]),ys[i]);x.lineTo(px(j+1,ys[i]),ys[i]);x.lineTo(px(j+1,ys[i+1]),ys[i+1]);x.lineTo(px(j,ys[i+1]),ys[i+1]);x.closePath();x.fill();
+  }
+}
+
+function boardStatic(x,t){
+  const bx=board.x,bw=board.w,bh=board.bottom-board.top;
+  if(t==='arcade'){
+    x.fillStyle='#12062e';x.fillRect(bx+bw+6,250,16,FLOOR-250+6);
+    x.fillStyle='#ff3c8e';x.fillRect(bx+bw+10,250,4,FLOOR-250+6);
+    x.fillStyle='#12062e';x.fillRect(bx+bw,284,10,14);rr(x,bx+bw-12,FLOOR-8,58,16,6);x.fill();
+    rr(x,bx,board.top,bw,bh,5);x.fillStyle='#fff6e5';x.fill();x.lineWidth=4;x.strokeStyle='#12062e';x.stroke();
+    x.fillStyle='#ff3c8e';x.fillRect(bx+bw/2-1.5,board.top+6,3,bh-12);
+  }else{
+    const sg=x.createLinearGradient(bx+bw+6,0,bx+bw+22,0);sg.addColorStop(0,'#3a424f');sg.addColorStop(1,'#1b2028');
+    x.fillStyle=sg;x.fillRect(bx+bw+6,250,16,FLOOR-250+6);
+    x.fillStyle='#2a303a';x.fillRect(bx+bw,284,10,14);
+    x.fillStyle='#c13a35';rr(x,bx+bw-2,FLOOR-70,28,78,5);x.fill();   // padded base
+    const gg=x.createLinearGradient(bx,0,bx+bw,0);gg.addColorStop(0,'rgba(210,235,255,.55)');gg.addColorStop(1,'rgba(255,255,255,.2)');
+    rr(x,bx,board.top,bw,bh,3);x.fillStyle=gg;x.fill();x.lineWidth=2;x.strokeStyle='rgba(235,242,250,.85)';x.stroke();
+    x.fillStyle='rgba(255,255,255,.35)';x.fillRect(bx+2,board.top+6,2,bh-12);
+  }
+}
+
+function paintArcade(x){
+  const gr=x.createLinearGradient(0,0,0,560);gr.addColorStop(0,'#150a3d');gr.addColorStop(1,'#3a1590');x.fillStyle=gr;x.fillRect(0,0,W,H);
+  x.save();x.translate(hoop.cx,rim.y+10);
+  for(let i=0;i<28;i+=2){const a0=i/28*Math.PI*2,a1=(i+1)/28*Math.PI*2;x.fillStyle='rgba(255,255,255,.05)';x.beginPath();x.moveTo(0,0);x.arc(0,0,1300,a0,a1);x.closePath();x.fill()}
+  x.restore();
+  x.fillStyle='rgba(255,60,142,.16)';x.beginPath();x.arc(hoop.cx,rim.y+10,190,0,7);x.fill();
+  x.fillStyle='rgba(52,229,255,.10)';x.beginPath();x.arc(hoop.cx,rim.y+10,120,0,7);x.fill();
+  x.fillStyle='#ff3c8e';x.fillRect(0,540,W,8);x.fillStyle='#ffd43b';x.fillRect(0,550,W,4);x.fillStyle='#34e5ff';x.fillRect(0,556,W,4);
+  floorChecker(x,'#2a1175','#3b1a96');
+  boardStatic(x,'arcade');
+}
+
+function paintReal(x){
+  const r=rng(7);
+  let gr=x.createLinearGradient(0,0,0,560);gr.addColorStop(0,'#080b10');gr.addColorStop(.6,'#131b27');gr.addColorStop(1,'#1d2736');x.fillStyle=gr;x.fillRect(0,0,W,H);
+  const crowd=['#7d8aa0','#a45b52','#566b8d','#b79b6a','#6d8f7c'];
+  for(let y=300,i=0;y<516;y+=22,i++){
+    x.fillStyle=i%2?'rgba(255,255,255,.025)':'rgba(255,255,255,.05)';x.fillRect(0,y,W,19);
+    for(let k=0;k<70;k++){if(r()<.55)continue;x.globalAlpha=.16+r()*.2;x.fillStyle=crowd[(r()*5)|0];x.beginPath();x.arc(r()*W,y+4+r()*12,3+r()*1.5,0,7);x.fill()}
+    x.globalAlpha=1;
+  }
+  x.fillStyle='#0a0e14';x.fillRect(0,520,W,24);x.fillStyle='#e8a24a';x.globalAlpha=.8;
+  x.font='700 14px "Barlow Condensed","Arial Narrow",sans-serif';for(let px=20;px<W;px+=190)x.fillText('SHOTLAB',px,537);x.globalAlpha=1;
+  for(const sx of [150,450,750]){
+    const lg=x.createLinearGradient(0,0,0,560);lg.addColorStop(0,'rgba(255,244,220,.16)');lg.addColorStop(1,'rgba(255,244,220,0)');
+    x.fillStyle=lg;x.beginPath();x.moveTo(sx-18,0);x.lineTo(sx+18,0);x.lineTo(sx+150,560);x.lineTo(sx-150,560);x.closePath();x.fill();
+  }
+  // Hardwood
+  const fg=x.createLinearGradient(0,560,0,H);fg.addColorStop(0,'#b57539');fg.addColorStop(1,'#dba768');x.fillStyle=fg;x.fillRect(0,560,W,H-560);
+  const vx=450,vy=330,px=(j,y)=>vx+(j*70)*(y-vy)/(H-vy);
+  x.strokeStyle='rgba(60,30,8,.28)';x.lineWidth=1.2;
+  for(let j=-16;j<=16;j++){x.beginPath();x.moveTo(px(j,560),560);x.lineTo(px(j,H),H);x.stroke()}
+  for(let j=-16;j<16;j++)for(let k=0;k<3;k++){if(r()<.45)continue;const y=560+(H-560)*r();x.beginPath();x.moveTo(px(j,y),y);x.lineTo(px(j+1,y),y);x.stroke()}
+  const gl=x.createLinearGradient(0,560,0,640);gl.addColorStop(0,'rgba(255,255,255,.16)');gl.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=gl;x.fillRect(0,560,W,80);
+  const rg=x.createRadialGradient(650,650,10,650,650,300);rg.addColorStop(0,'rgba(255,230,180,.28)');rg.addColorStop(1,'rgba(255,230,180,0)');x.fillStyle=rg;x.fillRect(0,560,W,H-560);
+  x.fillStyle='#0a0d12';x.fillRect(0,556,W,6);
+  boardStatic(x,'real');
+  const vg=x.createRadialGradient(W/2,H/2,H*.35,W/2,H/2,H*.85);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.5)');x.fillStyle=vg;x.fillRect(0,0,W,H);
+}
+
+const backdrops={};
+function getBackdrop(key){
+  if(!backdrops[key]){
+    const c=document.createElement('canvas');c.width=W*DPR;c.height=H*DPR;const x=c.getContext('2d');x.scale(DPR,DPR);
+    ({arcade:paintArcade,real:paintReal,povarcade:paintPovArcade,povreal:paintPovReal})[key](x);
+    backdrops[key]=c;
+  }
+  return backdrops[key];
+}
+document.fonts?.ready?.then(()=>{for(const k of Object.keys(backdrops))delete backdrops[k]});
+
+// Target arc: a medium-high shot that drops into the hoop at full power.
+const guide=(()=>{
+  const th=55*Math.PI/180,v=SHOT_SPEED,vx=v*Math.cos(th),vy=-v*Math.sin(th),pts=[];
+  for(let t=0;t<2;t+=.035){const x=release.x+vx*t,y=release.y+vy*t+GRAV*t*t/2;pts.push({x,y});if(x>hoop.cx+4&&y>rim.y)break}
+  return pts;
+})();
+
+function ik(s,h,l1,l2,fwd){
+  let dx=h.x-s.x,dy=h.y-s.y,d=Math.hypot(dx,dy);const m=l1+l2-.5;
+  if(d>m){dx*=m/d;dy*=m/d;d=m}if(d<12)d=12;
+  const a=(l1*l1-l2*l2+d*d)/(2*d),hh=Math.sqrt(Math.max(0,l1*l1-a*a)),ux=dx/d,uy=dy/d;
+  const o1={x:s.x+ux*a-uy*hh,y:s.y+uy*a+ux*hh},o2={x:s.x+ux*a+uy*hh,y:s.y+uy*a-ux*hh};
+  return {e:fwd?(o1.x>o2.x?o1:o2):(o1.y>o2.y?o1:o2),h:{x:s.x+dx,y:s.y+dy}};
+}
+
+/* ---------- Shooting form ----------
+   Ready (ball at chest) -> set point (knees bent, ball above the head, elbow under the ball, guide hand on the side)
+   -> extension (legs and arm drive up together, small jump) -> release off the fingertips -> wrist snap and follow-through -> recover. */
+const ease=t=>t*t*(3-2*t),easeOut=t=>1-(1-t)*(1-t);
+const T_GATHER=.28,T_EXT=.17,T_REL=.16;   // seconds: gather to set point, extension, ball leaves the hand
+const mix=(a,b,t)=>({x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t)});
+
+function formAt(now){
+  const F={load:loadK,ext:0,snap:0,jump:0,recover:0,crouch:.65*loadK};
+  if(shotAnim){
+    const t=(now-shotAnim.t0)/1000,gt=shotAnim.gather?T_GATHER:0,te=t-gt;
+    F.load=shotAnim.gather?ease(clamp(t/gt,0,1)):lerp(shotAnim.from,1,ease(clamp(t/.1,0,1)));F.crouch=.65*F.load;
+    if(te>0){
+      F.ext=ease(clamp(te/T_EXT,0,1));
+      F.snap=ease(clamp((te-.15)/.16,0,1));
+      F.jump=te<.2?easeOut(te/.2):te<.32?1:1-ease(clamp((te-.32)/.2,0,1));
+      F.crouch=.65*(1-ease(clamp(te/.15,0,1)));
+      F.recover=ease(clamp((te-.8)/.45,0,1));
+    }
+  }
+  return F;
+}
+
+function computePose(now){
+  const f=formAt(now);
+  const dy=f.crouch*20-f.jump*24,lean=f.crouch*.17-f.ext*.04*(1-f.recover);
+  const hip={x:153,y:536+dy},c=Math.cos(lean),sn=Math.sin(lean);
+  const rot=(bx,by)=>{const x=bx-153,y=by-536;return{x:hip.x+x*c-y*sn,y:hip.y+x*sn+y*c}};
+  const S=rot(152,420),S2=rot(148,422),rel=(o,p)=>({x:o.x+p.x,y:o.y+p.y}),READY={x:62,y:62};
+  // Wrist path relative to the shoulder: chest -> set point -> full reach -> small forward snap -> back to chest
+  let w=mix(READY,{x:50,y:-50},f.load);w=mix(w,{x:56,y:-92},f.ext);w=mix(w,{x:62,y:-94},f.snap);w=mix(w,READY,f.recover);
+  // Hand angle in degrees: cupped under the ball, then flopping forward and down (the "gooseneck")
+  let hold=lerp(lerp(-60,-75,f.load),-62,f.ext);hold=lerp(hold,-60,f.recover);
+  const ang=lerp(lerp(hold,40,f.snap),-60,f.recover);
+  // Guide hand: supports the ball from the side, then falls away before release
+  let o=mix({x:60,y:68},{x:30,y:-58},f.load);o=mix(o,{x:34,y:-8},ease(clamp(f.ext*2-.6,0,1)));o=mix(o,{x:60,y:68},f.recover);
+  const arm=ik(S,rel(S,w),56,56),off=ik(S2,rel(S2,o),52,52),a=ang*Math.PI/180,ah=hold*Math.PI/180;
+  const tip={x:arm.h.x+16*Math.cos(a),y:arm.h.y+16*Math.sin(a)};
+  const B={x:arm.h.x+26*Math.cos(ah),y:arm.h.y+26*Math.sin(ah)};   // ball center while held
+  const lift=f.jump*20,hipB={x:146,y:552+dy},hipF={x:160,y:552+dy};
+  const legB=ik(hipB,{x:128+f.crouch*6,y:630-lift},40,40,true),legF=ik(hipF,{x:178+f.crouch*4,y:630-lift},40,40,true);
+  return {f,dy,lean,hip,S,S2,arm,off,tip,B,hipB,hipF,legB,legF};
+}
+
+function drawPlayer(pose){
+  const A=theme==='arcade';
+  const P=A?{line:'#12062e',lw:4.5,skin:SKIN[playerLook.skin][0],skin2:SKIN[playerLook.skin][1],jersey:'#ff3c8e',shorts:'#34e5ff',shoe:'#fff6e5',hair:'#12062e',band:'#ffd43b',num:'#fff6e5',shadow:'rgba(8,2,30,.5)'}
+            :{line:'rgba(0,0,0,.38)',lw:1.3,skin:SKIN[playerLook.skin][0],skin2:SKIN[playerLook.skin][1],jersey:'#b8252f',shorts:'#eceae4',shoe:'#1b1f26',hair:'#1a1410',band:null,num:'#f6f1e8',shadow:'rgba(0,0,0,.38)'};
+  const {f,hip,lean,S,S2,arm,off,tip,hipB,hipF,legB,legF}=pose;
+  const dkSkin=skinLum(P.skin)<.25;if(dkSkin&&!A){P.line='rgba(255,226,205,.34)';P.lw=1.7}   // dark skin: a light rim instead of a dark outline, which disappears
+  const limb=(pts,w,col)=>{
+    g.lineCap='round';g.lineJoin='round';g.beginPath();g.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)g.lineTo(pts[i].x,pts[i].y);
+    if(P.lw){g.strokeStyle=P.line;g.lineWidth=w+P.lw*2;g.stroke()}g.strokeStyle=col;g.lineWidth=w;g.stroke();
+  };
+  const fillShape=col=>{g.fillStyle=col;g.fill();if(P.lw){g.lineWidth=P.lw;g.strokeStyle=P.line;g.stroke()}};
+  const dot=(p,r,col)=>{g.beginPath();g.arc(p.x,p.y,r,0,Math.PI*2);fillShape(col)};
+
+  g.fillStyle=P.shadow;g.beginPath();g.ellipse(156,FLOOR-2,64*(1-f.jump*.22),9*(1-f.jump*.2),0,0,Math.PI*2);g.fill();
+  limb([S2,off.e,off.h],13,P.skin2);dot(off.h,7,P.skin2);                                   // guide arm (behind the body)
+  limb([hipB,legB.e,legB.h],17,P.skin2);rr(g,legB.h.x-14,legB.h.y-2,32,11,5);fillShape(P.shoe);   // back leg
+  limb([hipF,legF.e,legF.h],17,P.skin);rr(g,legF.h.x-12,legF.h.y-2,34,11,5);fillShape(P.shoe);    // front leg
+
+  g.save();g.translate(hip.x,hip.y);g.rotate(lean);g.translate(-153,-536);                  // upper body leans with the knees
+  rr(g,127,506,52,58,14);fillShape(P.shorts);
+  rr(g,128,398,46,122,18);fillShape(P.jersey);
+  g.fillStyle=P.num;g.textAlign='center';g.textBaseline='middle';
+  g.font=A?'400 22px Bungee,Impact,sans-serif':'700 28px "Barlow Condensed","Arial Narrow",sans-serif';g.fillText('7',151,456);
+  g.fillStyle=P.skin;g.fillRect(146,384,12,18);
+  if(playerLook.hair==='long'){
+    g.beginPath();g.moveTo(134,363);g.quadraticCurveTo(128,401,131,423);g.lineTo(171,423);g.quadraticCurveTo(176,391,174,357);g.closePath();g.fillStyle=P.hair;g.fill();
+  }
+  dot({x:156,y:370},23,P.skin);
+  g.beginPath();g.arc(154,367,24,Math.PI*1.03,Math.PI*1.98);g.closePath();g.fillStyle=P.hair;g.fill();
+  if(P.band)limb([{x:133,y:366},{x:179,y:362}],6,P.band);
+  g.fillStyle=A?'#12062e':(dkSkin?'#f2eadf':'#120d0a');g.beginPath();g.arc(167,372,2.6,0,Math.PI*2);g.fill();
+  g.restore();
+
+  limb([S,{x:lerp(S.x,arm.e.x,.42),y:lerp(S.y,arm.e.y,.42)}],20,P.jersey);                  // sleeve
+  limb([{x:lerp(S.x,arm.e.x,.4),y:lerp(S.y,arm.e.y,.4)},arm.e,arm.h],14,P.skin);            // shooting arm
+  limb([arm.h,tip],10,P.skin);dot(arm.h,6,P.skin);                                           // hand / fingers
+}
+
+function drawBall(x,y,r,rot,alpha=1){
+  const A=theme==='arcade';
+  g.save();g.globalAlpha=alpha;g.translate(x,y);g.rotate(rot);
+  g.beginPath();g.arc(0,0,r,0,Math.PI*2);
+  if(A){g.fillStyle='#ff7b1c'}else{const bg=g.createRadialGradient(-r*.35,-r*.4,r*.1,0,0,r*1.05);bg.addColorStop(0,'#f2a04f');bg.addColorStop(.55,'#c8631f');bg.addColorStop(1,'#7a3610');g.fillStyle=bg}
+  g.fill();
+  g.strokeStyle=A?'#12062e':'#2b1307';g.lineWidth=A?2.8:1.8;
+  g.beginPath();g.arc(0,0,r,0,Math.PI*2);g.moveTo(-r,0);g.lineTo(r,0);g.moveTo(0,-r);g.lineTo(0,r);
+  g.moveTo(-r*.7,-r*.7);g.quadraticCurveTo(r*.8,0,-r*.7,r*.7);g.moveTo(r*.7,-r*.7);g.quadraticCurveTo(-r*.8,0,r*.7,r*.7);g.stroke();
+  g.rotate(-rot);g.fillStyle=A?'rgba(255,255,255,.6)':'rgba(255,255,255,.28)';g.beginPath();g.ellipse(-r*.38,-r*.42,r*.22,r*.12,-.6,0,Math.PI*2);g.fill();
+  g.restore();
+}
+function ballShadow(x,y,r,alpha=1){
+  const h=clamp((FLOOR-y)/500,0,1);g.fillStyle=`rgba(0,0,0,${.34*(1-h*.7)*alpha})`;
+  g.beginPath();g.ellipse(x,FLOOR+1,r*(1.15-.45*h),r*.28,0,0,Math.PI*2);g.fill();
+}
+
+function rimStroke(front){
+  const A=theme==='arcade';
+  g.save();g.lineCap='round';
+  g.beginPath();g.ellipse(hoop.cx,rim.y,hoop.rx,hoop.ry,0,front?0:Math.PI,front?Math.PI:Math.PI*2);
+  if(A){g.strokeStyle='#ff5a1f';g.lineWidth=7;g.shadowColor='#ff5a1f';g.shadowBlur=14}else{g.strokeStyle='#cf4e26';g.lineWidth=5.5}
+  g.stroke();
+  if(!A&&front){g.shadowBlur=0;g.strokeStyle='rgba(255,190,150,.7)';g.lineWidth=1.3;g.beginPath();g.ellipse(hoop.cx,rim.y-1.5,hoop.rx,hoop.ry,0,.15,Math.PI-.15);g.stroke()}
+  g.restore();
+}
+function netPass(front){
+  const A=theme==='arcade',n=10,sway=netSway*Math.sin(performance.now()/55)*8;
+  const rx=hoop.rx-3,ry=hoop.ry-1,L=hoop.netLen,bx=24,by=4,S=[];
+  for(let i=0;i<n;i++){const a=i/n*Math.PI*2;S.push({a,top:{x:hoop.cx+rx*Math.cos(a),y:rim.y+ry*Math.sin(a)},bot:{x:hoop.cx+bx*Math.cos(a)+sway,y:rim.y+L+by*Math.sin(a)}})}
+  const at=(s,f)=>({x:lerp(s.top.x,s.bot.x,f),y:lerp(s.top.y,s.bot.y,f)});
+  g.save();g.lineWidth=1.4;g.strokeStyle=A?'rgba(255,255,255,.92)':'rgba(240,240,235,.72)';
+  for(let i=0;i<n;i++){
+    const s=S[i],t=S[(i+1)%n];
+    if((Math.sin(s.a)>0)===front){const m=at(s,.5);g.beginPath();g.moveTo(s.top.x,s.top.y);g.quadraticCurveTo(m.x-(m.x-hoop.cx)*.12+sway*.4,m.y,s.bot.x,s.bot.y);g.stroke()}
+    if((Math.sin((s.a+t.a)/2)>0)===front){
+      g.beginPath();let p=at(s,.3),q=at(t,.62);g.moveTo(p.x,p.y);g.lineTo(q.x,q.y);p=at(s,.62);q=at(t,.3);g.moveTo(p.x,p.y);g.lineTo(q.x,q.y);
+      p=at(s,1);q=at(t,1);g.moveTo(p.x,p.y);g.lineTo(q.x,q.y);g.stroke();
+    }
+  }
+  g.restore();
+}
+
+function draw(now){
+  g.setTransform(DPR,0,0,DPR,0,0);g.clearRect(0,0,W,H);
+  g.save();
+  if(shake>0&&!REDUCED&&theme==='arcade')g.translate((Math.random()-.5)*shake*8,(Math.random()-.5)*shake*8);
+  if(view==='pov'){drawPov(now);g.restore();drawTraj();return}
+  g.drawImage(getBackdrop(theme),0,0,W,H);
+  const A=theme==='arcade';
+
+  if(A&&burst>0&&!REDUCED){ // score burst rays
+    g.save();g.translate(hoop.cx,rim.y+10);
+    for(let i=1;i<28;i+=2){const a0=i/28*Math.PI*2,a1=(i+1)/28*Math.PI*2;g.fillStyle=`rgba(255,212,59,${burst*.2})`;g.beginPath();g.moveTo(0,0);g.arc(0,0,1300,a0,a1);g.closePath();g.fill()}
+    g.restore();
+  }
+  // target arc (before a shot) and the last shot's path
+  if(!ball&&$('showGuide').checked){
+    g.fillStyle=A?'rgba(52,229,255,.85)':'rgba(255,255,255,.4)';
+    for(let i=1;i<guide.length;i+=2){g.beginPath();g.arc(guide[i].x,guide[i].y,A?3.6:2.2,0,Math.PI*2);g.fill()}
+  }
+  if(lastPath&&!ball){
+    g.fillStyle=lastPath.ok?'rgba(92,242,161,.7)':'rgba(255,93,115,.65)';
+    for(let i=0;i<lastPath.pts.length;i+=4){g.beginPath();g.arc(lastPath.pts[i].x,lastPath.pts[i].y,A?3:2,0,Math.PI*2);g.fill()}
+  }
+  // backboard bulbs
+  if(A){
+    const bxm=board.x+board.w/2,n=8,step=Math.floor(now/70);
+    for(let i=0;i<n;i++){
+      const y=board.top+14+i*((board.bottom-board.top-28)/(n-1)),on=burst>0?((step+i)%3===0):false;
+      g.fillStyle=on?'#fff6e5':'#ffb800';g.globalAlpha=on?1:.55;g.shadowColor='#ffd43b';g.shadowBlur=on?12:4;
+      g.beginPath();g.arc(bxm,y,2.8,0,Math.PI*2);g.fill();
+    }
+    g.globalAlpha=1;g.shadowBlur=0;
+  }
+
+  const pose=computePose(now);drawPlayer(pose);
+  rimStroke(false);netPass(false);
+
+  // trail
+  if(ball){
+    const b=ball,n=b.trail.length;
+    for(let i=0;i<n;i++){const p=b.trail[i],f=i/n;g.fillStyle=A?`rgba(255,123,28,${f*.55})`:`rgba(255,255,255,${f*.16})`;g.beginPath();g.arc(p.x,p.y,(A?7:3.2)*f,0,Math.PI*2);g.fill()}
+  }
+  for(const l of loose){const a=clamp((2.2-l.age)/.5,0,1);ballShadow(l.x,l.y,l.r,a);drawBall(l.x,l.y,l.r,l.rot,a)}
+  if(ball){ballShadow(ball.x,ball.y,ball.r);drawBall(ball.x,ball.y,ball.r,ball.rot)}
+  else if(pending||!shotAnim||pose.f.recover>.5){   // ball in the player's hands
+    if(state==='loaded'&&live&&!shotAnim){ // ready ring
+      g.strokeStyle=A?'#34e5ff':'rgba(255,255,255,.7)';g.lineWidth=A?3:2;g.beginPath();g.arc(pose.B.x,pose.B.y,25+Math.sin(now/110)*2,0,Math.PI*2);g.stroke();
+    }
+    drawBall(pose.B.x,pose.B.y,15,0);
+  }
+  netPass(true);rimStroke(true);
+
+  if(A&&burst>0){g.strokeStyle=`rgba(255,212,59,${burst})`;g.lineWidth=4;g.beginPath();g.ellipse(hoop.cx,rim.y,hoop.rx+(1-burst)*110,hoop.ry+(1-burst)*50,0,0,Math.PI*2);g.stroke()}
+  for(const p of particles){g.save();g.globalAlpha=clamp(p.life,0,1);g.translate(p.x,p.y);g.rotate(p.rot);g.fillStyle=p.col;g.fillRect(-p.s/2,-p.s/2,p.s,p.s*.6);g.restore()}
+  g.restore();
+}
+
+/* =========================================================
+   Behind-the-ball view (first person)
+   Same physics as the side view, plus a lateral axis (lat). x = forward, lat = left/right, y = height.
+   The projection is an arcade perspective tuned so the ball starts at the bottom of the screen,
+   flies up and away, and the hoop sits upper-middle.
+   ========================================================= */
+const PV={cx:450,k:3.67,bv:1.597,a:-484.6,vp:251.8,d0:138};   // release at (450,200) r=55 (overhead, close), apex near y=120, hoop at (450,255) r=40
+const pv=(lat,y,Z)=>{const s=PV.d0/(Math.max(Z,-PV.d0*.7)+PV.d0);return{x:PV.cx+lat*PV.k*s,y:PV.vp+(PV.a+PV.bv*y)*s,s}};
+const HZ=hoop.cx-release.x,BZ=board.x-release.x;
+const POV_REL_OFF=120;   // the ball is released above the shooting hand, off to that side; it drifts onto the center line over the first part of its flight
+const povSide=()=>$('hand').value==='right'?1:-1;
+const pvR=(lat,y,x)=>{const p=pv(lat,y,x-release.x);return{x:p.x+povSide()*POV_REL_OFF*clamp(1-(x-release.x)/260,0,1),y:p.y,s:p.s}};
+const HP=(()=>{const c=pv(0,rim.y,HZ),b=pv(0,rim.y+hoop.netLen,HZ),r=52*PV.k*c.s;return{cx:c.x,cy:c.y,s:c.s,rx:r,ry:r*.14,by:b.y,brx:24*PV.k*c.s,bry:24*PV.k*c.s*.14}})();
+
+function updateAimUI(){
+  const y=aimYaw;
+  $('aimVal').textContent=Math.abs(y)<1?'Center':(y<0?'Left ':'Right ')+Math.round(Math.abs(y))+'°';
+  $('aimDot').style.left=(50+clamp(y/24,-1,1)*46)+'%';
+}
+
+/* Behind-view scenery: a real court in true perspective. The horizon is below the rim (you are looking UP at the hoop),
+   the baseline is where the stanchion stands, and the lane, free-throw line and 3-point line fan out toward you. */
+const POVC={vy:320,K:2340,Kx:337.5,Db:30,Dw:40};   // horizon y, depth scale, sideways scale, baseline distance, back-wall distance (in court feet)
+const cyD=D=>POVC.vy+POVC.K/D,cxD=(X,D)=>450+X*POVC.Kx/D;
+const cp=(X,Z)=>{const D=Math.max(3,POVC.Db-Z);return[cxD(X,D),cyD(D)]};   // court feet to screen. X = sideways, Z = feet from the baseline toward you
+function povPoly(x,pts,fill){x.beginPath();pts.forEach((q,i)=>i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]));x.closePath();x.fillStyle=fill;x.fill()}
+function povPath(x,pts){x.beginPath();pts.forEach((q,i)=>i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]))}
+function povFloorBands(x,cA,cB,step){   // floorboards run toward the hoop
+  for(let i=-18,k=0;i<18;i++,k++)povPoly(x,[cp(i*step,-10),cp((i+1)*step,-10),cp((i+1)*step,28),cp(i*step,28)],(k&1)?cA:cB);
+}
+function povCourtLines(x,col,w,baseCol){
+  x.lineCap='round';x.lineJoin='round';x.setLineDash([]);
+  x.strokeStyle=baseCol;x.lineWidth=w+1;povPath(x,[cp(-30,0),cp(30,0)]);x.stroke();                 // baseline
+  x.strokeStyle=col;x.lineWidth=w;povPath(x,[cp(-8,0),cp(-8,19),cp(8,19),cp(8,0)]);x.stroke();      // lane and free-throw line
+  const half=sg=>{const o=[];for(let i=0;i<=24;i++){const t=Math.PI*i/24;o.push(cp(6*Math.cos(t),19+sg*6*Math.sin(t)))}return o};
+  povPath(x,half(-1));x.stroke();                                                                   // free-throw circle, inside the key
+  x.setLineDash([w*2.2,w*2]);povPath(x,half(1));x.stroke();x.setLineDash([]);                       // ...and the dashed half toward you
+  const R=23.75,a0=Math.asin(22/R);                                                                 // 3-point line: straight, then an arc around the hoop
+  for(const sg of [-1,1]){
+    const o=[cp(sg*22,0),cp(sg*22,5.25+R*Math.cos(a0))];
+    for(let i=1;i<=22;i++){const a=lerp(a0,.7,i/22);o.push(cp(sg*R*Math.sin(a),5.25+R*Math.cos(a)))}
+    povPath(x,o);x.stroke();
+  }
+}
+function povPole(x,col,stripe,pad){
+  const by=cyD(34),w=11;
+  x.fillStyle=col;x.fillRect(450-w/2,200,w,by-200);
+  if(stripe){x.fillStyle=stripe;x.fillRect(450-w/2+w*.55,200,w*.2,by-200)}
+  rr(x,450-36,by-9,72,18,6);x.fillStyle=pad;x.fill();
+}
+function povBoard(x,t){
+  const a=pv(-board.hw,board.top,BZ),b=pv(board.hw,342,BZ),s0=pv(-28,262,BZ),s1=pv(28,318,BZ),bx=a.x,by=a.y,bw=b.x-a.x,bh=b.y-a.y;
+  x.fillStyle=t==='arcade'?'#12062e':'#3a424f';x.fillRect(HP.cx-12,by+bh-8,24,18);   // bracket behind the rim
+  if(t==='arcade'){
+    rr(x,bx-4,by+6,bw+8,bh,8);x.fillStyle='#0b0426';x.fill();
+    rr(x,bx,by,bw,bh,8);x.fillStyle='#fff6e5';x.fill();x.lineWidth=4;x.strokeStyle='#12062e';x.stroke();
+    x.fillStyle='#ffd43b';x.fillRect(bx+12,by+bh-12,bw-24,4);
+    x.lineWidth=3.5;x.strokeStyle='#ff3c8e';x.strokeRect(s0.x,s0.y,s1.x-s0.x,s1.y-s0.y);
+  }else{
+    rr(x,bx-3,by+4,bw+6,bh,4);x.fillStyle='rgba(20,26,34,.55)';x.fill();
+    rr(x,bx,by,bw,bh,4);x.fillStyle='rgba(205,228,250,.30)';x.fill();x.lineWidth=3.5;x.strokeStyle='rgba(225,235,245,.92)';x.stroke();
+    x.lineWidth=3;x.strokeStyle='#d96a2b';x.strokeRect(s0.x,s0.y,s1.x-s0.x,s1.y-s0.y);
+    x.fillStyle='rgba(255,255,255,.2)';x.fillRect(bx+8,by+6,4,bh-12);
+  }
+}
+
+function paintPovArcade(x){
+  const wy=cyD(POVC.Dw);
+  const gr=x.createLinearGradient(0,0,0,wy);gr.addColorStop(0,'#150a3d');gr.addColorStop(1,'#3a1590');x.fillStyle=gr;x.fillRect(0,0,W,H);
+  x.save();x.translate(HP.cx,HP.cy-15);
+  for(let i=0;i<28;i+=2){const a0=i/28*Math.PI*2,a1=(i+1)/28*Math.PI*2;x.fillStyle='rgba(255,255,255,.05)';x.beginPath();x.moveTo(0,0);x.arc(0,0,1300,a0,a1);x.closePath();x.fill()}
+  x.restore();
+  x.fillStyle='rgba(255,60,142,.16)';x.beginPath();x.arc(HP.cx,HP.cy-15,200,0,7);x.fill();
+  x.fillStyle='rgba(52,229,255,.10)';x.beginPath();x.arc(HP.cx,HP.cy-15,125,0,7);x.fill();
+  x.fillStyle='#ff3c8e';x.fillRect(0,wy-14,W,7);x.fillStyle='#ffd43b';x.fillRect(0,wy-7,W,4);x.fillStyle='#34e5ff';x.fillRect(0,wy-3,W,3);   // wall trim
+  povFloorBands(x,'#27136b','#2d1977',5);
+  povPoly(x,[cp(-60,-10),cp(60,-10),cp(60,0),cp(-60,0)],'rgba(8,4,34,.55)');                        // out of bounds
+  povPoly(x,[cp(-8,0),cp(8,0),cp(8,19),cp(-8,19)],'#6a22b8');                                      // painted key
+  const gl=x.createLinearGradient(0,wy,0,wy+240);gl.addColorStop(0,'rgba(255,255,255,.10)');gl.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=gl;x.fillRect(0,wy,W,240);
+  x.save();x.shadowColor='#ffd43b';x.shadowBlur=8;povCourtLines(x,'#ffd43b',4,'#34e5ff');x.restore();
+  povPole(x,'#12062e','#ff3c8e','#12062e');
+  povBoard(x,'arcade');
+}
+
+function paintPovReal(x){
+  const r=rng(11),wy=cyD(POVC.Dw);
+  const gr=x.createLinearGradient(0,0,0,wy);gr.addColorStop(0,'#080b10');gr.addColorStop(.6,'#131b27');gr.addColorStop(1,'#1d2736');x.fillStyle=gr;x.fillRect(0,0,W,H);
+  const crowd=['#7d8aa0','#a45b52','#566b8d','#b79b6a','#6d8f7c'];
+  for(let y=60,i=0;y<wy-40;y+=22,i++){
+    x.fillStyle=i%2?'rgba(255,255,255,.025)':'rgba(255,255,255,.05)';x.fillRect(0,y,W,19);
+    for(let k=0;k<80;k++){if(r()<.55)continue;x.globalAlpha=.16+r()*.2;x.fillStyle=crowd[(r()*5)|0];x.beginPath();x.arc(r()*W,y+4+r()*12,3+r()*1.5,0,7);x.fill()}
+    x.globalAlpha=1;
+  }
+  x.fillStyle='#0a0e14';x.fillRect(0,wy-32,W,28);x.fillStyle='#e8a24a';x.globalAlpha=.8;
+  x.font='700 15px "Barlow Condensed","Arial Narrow",sans-serif';for(let px=24;px<W;px+=200)x.fillText('SHOTLAB',px,wy-13);x.globalAlpha=1;
+  for(const sx of [140,450,760]){
+    const lg=x.createLinearGradient(0,0,0,wy);lg.addColorStop(0,'rgba(255,244,220,.17)');lg.addColorStop(1,'rgba(255,244,220,0)');
+    x.fillStyle=lg;x.beginPath();x.moveTo(sx-20,0);x.lineTo(sx+20,0);x.lineTo(sx+170,wy);x.lineTo(sx-170,wy);x.closePath();x.fill();
+  }
+  // maple floor, boards running toward the hoop
+  x.fillStyle='#c59356';x.fillRect(0,wy,W,H-wy);
+  povFloorBands(x,'#cb9b5e','#c3925a',4);
+  x.strokeStyle='rgba(90,50,15,.20)';x.lineWidth=1;
+  for(let i=-18;i<=18;i++){povPath(x,[cp(i*4,-10),cp(i*4,28)]);x.stroke()}
+  for(let i=-18;i<18;i++)for(let k=0;k<6;k++){if(r()<.5)continue;const Z=-10+r()*36;povPath(x,[cp(i*4,Z),cp(i*4+4,Z)]);x.stroke()}
+  povPoly(x,[cp(-60,-10),cp(60,-10),cp(60,0),cp(-60,0)],'rgba(70,38,12,.30)');                      // out of bounds
+  povPoly(x,[cp(-8,0),cp(8,0),cp(8,19),cp(-8,19)],'#27529a');                                       // painted key
+  x.strokeStyle='rgba(255,255,255,.07)';x.lineWidth=1;for(let i=-2;i<=2;i++){povPath(x,[cp(i*4,0),cp(i*4,19)]);x.stroke()}
+  const gl=x.createLinearGradient(0,wy,0,wy+240);gl.addColorStop(0,'rgba(255,255,255,.16)');gl.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=gl;x.fillRect(0,wy,W,240);
+  const rg=x.createRadialGradient(450,540,10,450,540,380);rg.addColorStop(0,'rgba(255,230,180,.22)');rg.addColorStop(1,'rgba(255,230,180,0)');x.fillStyle=rg;x.fillRect(0,wy,W,H-wy);
+  povCourtLines(x,'#f4f1e8',4,'#f4f1e8');
+  x.fillStyle='#0a0d12';x.fillRect(0,wy-4,W,5);
+  povPole(x,'#2a303a','rgba(255,255,255,.12)','#c13a35');
+  povBoard(x,'real');
+  const vg=x.createRadialGradient(W/2,H/2,H*.38,W/2,H/2,H*.9);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.5)');x.fillStyle=vg;x.fillRect(0,0,W,H);
+}
+
+// The camera is below the rim, so the NEAR half of the rim is the upper arc and the net hangs below it.
+function povRim(front){
+  const A=theme==='arcade';
+  g.save();g.lineCap='round';g.beginPath();g.ellipse(HP.cx,HP.cy,HP.rx,HP.ry,0,front?Math.PI:0,front?Math.PI*2:Math.PI);
+  if(A){g.strokeStyle='#ff5a1f';g.lineWidth=5.5;g.shadowColor='#ff5a1f';g.shadowBlur=12}else{g.strokeStyle='#cf4e26';g.lineWidth=4.5}
+  g.stroke();
+  if(!A&&front){g.shadowBlur=0;g.strokeStyle='rgba(255,190,150,.7)';g.lineWidth=1.3;g.beginPath();g.ellipse(HP.cx,HP.cy-1.5,HP.rx,HP.ry,0,Math.PI+.15,Math.PI*2-.15);g.stroke()}
+  g.restore();
+}
+function povNet(front){
+  const A=theme==='arcade',n=10,sway=netSway*Math.sin(performance.now()/55)*9,rx=HP.rx-4,ry=HP.ry-1,S=[];
+  for(let i=0;i<n;i++){const a=i/n*Math.PI*2;S.push({a,t:[HP.cx+rx*Math.cos(a),HP.cy+ry*Math.sin(a)],b:[HP.cx+HP.brx*Math.cos(a)+sway,HP.by+HP.bry*Math.sin(a)]})}
+  g.save();g.lineWidth=1.4;g.strokeStyle=A?'rgba(255,255,255,.92)':'rgba(240,240,235,.72)';
+  for(let i=0;i<n;i++){
+    const s=S[i],t=S[(i+1)%n],m=f=>[lerp(s.t[0],s.b[0],f),lerp(s.t[1],s.b[1],f)],q=f=>[lerp(t.t[0],t.b[0],f),lerp(t.t[1],t.b[1],f)];
+    if((Math.sin(s.a)<0)===front){g.beginPath();g.moveTo(s.t[0],s.t[1]);g.lineTo(s.b[0],s.b[1]);g.stroke()}
+    if((Math.sin((s.a+t.a)/2)<0)===front){
+      g.beginPath();let p0=m(.3),p1=q(.62);g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);p0=m(.62);p1=q(.3);g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);
+      p0=m(1);p1=q(1);g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);g.stroke();
+    }
+  }
+  g.restore();
+}
+
+/* First-person shooting form, seen through the shooter's eyes (like a real shot-cam).
+   The arms stay BIG and CLOSE to you and get TALL: the forearms run up most of the screen.
+   Rest: both hands hold the ball low. Load: the ball rises to the set point in the shooting hand, guide hand at its side.
+   Extend: both arms go UP with the ball; the shooting hand ends up high with the ball above it, the guide hand stays up beside it,
+   open and a little lower. Release: the wrist pushes FORWARD (the hand tips away, fingers hanging over) as the ball leaves. */
+function povBallPos(f){   // where the ball is while it is still in the hands
+  const ss=povSide(),rc=f.recover;
+  let x=450,y=650,r=45;
+  x=lerp(x,450+ss*40,f.load);y=lerp(y,505,f.load);r=lerp(r,52,f.load);
+  x=lerp(x,450+ss*POV_REL_OFF,f.ext);y=lerp(y,200,f.ext);r=lerp(r,55,f.ext);
+  return{x:lerp(x,450,rc),y:lerp(y,650,rc),r:lerp(r,45,rc)};
+}
+function povHands(A,f,bp,drawHeld){
+  const skin=SKIN[playerLook.skin][0],sleeve=A?'#ff3c8e':'#b8252f',cuff=A?'#ffd43b':'#f1efe8',line=A?'#12062e':'rgba(20,10,5,.7)',lw=A?4.5:2.2,rc=f.recover;
+  const ss=povSide();
+  const seg=(x0,y0,ang,len)=>{const a=ang*Math.PI/180;return[x0+Math.sin(a)*len,y0-Math.cos(a)*len]};
+  const mix2=(a,b,t)=>[lerp(a[0],b[0],t),lerp(a[1],b[1],t)];
+  const hands=[];
+  for(const s of [-1,1]){
+    const shooter=s===ss;
+    let off,hs,tilt,curl,spread,sy=1,flen=1,fwd=0;
+    if(shooter){   // under the ball all the way up; ends high with the ball resting in the palm
+      off=mix2(mix2([s*100,38],[s*8,94],f.load),[s*2,112],f.ext);
+      hs=lerp(lerp(1,1.06,f.load),1.14,f.ext);
+      tilt=lerp(lerp(16,0,f.load),-2,f.ext);curl=lerp(lerp(38,14,f.load),12,f.ext);spread=lerp(lerp(8,13,f.load),10,f.ext);
+      // wrist push: the hand tips forward, away from you, the fingers hanging over (gooseneck)
+      tilt=lerp(tilt,-6,f.snap);curl=lerp(curl,-150,f.snap);spread=lerp(spread,5,f.snap);sy=lerp(1,.55,f.snap);flen=lerp(1,.7,f.snap);hs*=lerp(1,.88,f.snap);fwd=f.snap;
+    }else{         // guide hand: at the ball's side, rises with it, then stays up beside the shooting arm, open
+      off=mix2(mix2([s*100,38],[s*98,36],f.load),[s*165,176],f.ext);
+      off=[off[0]+s*16*f.snap,off[1]+34*f.snap];
+      hs=lerp(lerp(1,1.06,f.load),1.04,f.ext);
+      tilt=lerp(lerp(16,12,f.load),6,f.ext);curl=lerp(lerp(38,20,f.load),10,f.ext);spread=lerp(8,12,f.ext);
+    }
+    let wx=bp.x+off[0],wy=bp.y+off[1]-16*fwd;
+    const rx=bp.x+s*100,ry=bp.y+38;   // recovery: back to the resting pose around the ball
+    wx=lerp(wx,rx,rc);wy=lerp(wy,ry,rc);hs=lerp(hs,1,rc);tilt=lerp(tilt,16,rc);curl=lerp(curl,38,rc);spread=lerp(spread,8,rc);sy=lerp(sy,1,rc);flen=lerp(flen,1,rc);
+    hands.push({s,shooter,wx,wy,hs,tilt,curl,spread,sy,flen,reach:f.ext*(1-rc)});
+  }
+  const stroke=(pts,w)=>{g.lineCap='round';g.lineJoin='round';g.beginPath();g.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)g.lineTo(pts[i][0],pts[i][1]);g.strokeStyle=line;g.lineWidth=w+lw*2;g.stroke();g.strokeStyle=skin;g.lineWidth=w;g.stroke()};
+  // pass 1: forearm, sleeve, palm and thumb (behind the ball)
+  const base=h=>{
+    const {s,wx,wy,hs,tilt,curl,sy,flen,reach}=h,bx=wx+s*lerp(150,38,reach),by=860,dx=bx-wx,dy=by-wy,cuffT=lerp(.34,.58,reach);
+    const P=(t,side)=>[wx+dx*t+side*lerp(26*hs,74,t),wy+dy*t];   // a long, tall arm that widens toward you
+    const quad=(t0,t1,col,outl)=>{const a=P(t0,-1),b=P(t0,1),c=P(t1,1),d=P(t1,-1);g.beginPath();g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);g.lineTo(c[0],c[1]);g.lineTo(d[0],d[1]);g.closePath();g.fillStyle=col;g.fill();if(outl){g.lineWidth=lw;g.strokeStyle=line;g.lineJoin='round';g.stroke()}};
+    quad(0,1,skin,true);quad(cuffT,1,sleeve,true);quad(cuffT,cuffT+.05,cuff,false);
+    g.save();g.translate(wx,wy);g.scale(s*hs,sy*hs);g.rotate(-tilt*Math.PI/180);   // drawn as a right hand; the left is mirrored
+    const t0=[-25,-20],t1=seg(t0[0],t0[1],-58,25*flen),t2=seg(t1[0],t1[1],-58-Math.max(curl,0)*.6+Math.max(0,-curl)*.35,19*flen);stroke([t0,t1,t2],14);
+    rr(g,-28,-62,56,66,24);g.fillStyle=skin;g.fill();if(lw){g.lineWidth=lw;g.strokeStyle=line;g.stroke()}
+    if(!A){g.fillStyle='rgba(255,255,255,.12)';g.beginPath();g.ellipse(-8,-34,13,20,-.2,0,Math.PI*2);g.fill()}
+    g.restore();
+  };
+  // pass 2: fingers (wrapped over the ball) and the speed streaks
+  const fingers=h=>{
+    const {s,shooter,wx,wy,hs,tilt,curl,spread,sy,flen}=h;
+    g.save();g.translate(wx,wy);g.scale(s*hs,sy*hs);g.rotate(-tilt*Math.PI/180);
+    const L=[30,34,32,26],bxs=[-19,-6,7,20];
+    for(let i=0;i<4;i++){
+      const th=-16+(i-1.5)*spread,p0=[bxs[i],-54],p1=seg(p0[0],p0[1],th,L[i]*.58*flen),p2=seg(p1[0],p1[1],th-curl,L[i]*.5);
+      stroke([p0,p1,p2],13-(i===3?2:0));
+    }
+    g.restore();
+    if(A&&shooter&&f.snap>.04&&rc<.6){
+      const a=Math.sin(Math.PI*Math.min(1,f.snap))*(1-rc);
+      g.save();g.globalAlpha=a;g.strokeStyle='#fff6e5';g.lineWidth=3.5;g.lineCap='round';
+      for(const k of [-1,0,1]){const an=k*30*Math.PI/180;g.beginPath();g.moveTo(wx+Math.sin(an)*66*hs,wy-40-Math.cos(an)*66*hs);g.lineTo(wx+Math.sin(an)*100*hs,wy-40-Math.cos(an)*100*hs);g.stroke()}
+      g.restore();
+    }
+  };
+  // Soft edge so the hands separate from the court: a dark halo on light skin, a light rim on dark skin.
+  const halo=()=>{g.shadowColor=skinLum(skin)<.28?'rgba(255,226,205,.6)':'rgba(0,0,0,.45)';g.shadowBlur=A?8:10};
+  g.save();halo();hands.forEach(base);g.restore();
+  if(drawHeld)drawHeld();
+  g.save();halo();hands.forEach(fingers);g.restore();
+}
+
+function drawPov(now){
+  const A=theme==='arcade',f=formAt(now),bp=povBallPos(f);
+  g.drawImage(getBackdrop(A?'povarcade':'povreal'),0,0,W,H);
+
+  if(A&&burst>0&&!REDUCED){
+    g.save();g.translate(450,235);
+    for(let i=1;i<28;i+=2){const a0=i/28*Math.PI*2,a1=(i+1)/28*Math.PI*2;g.fillStyle=`rgba(255,212,59,${burst*.2})`;g.beginPath();g.moveTo(0,0);g.arc(0,0,1300,a0,a1);g.closePath();g.fill()}
+    g.restore();
+  }
+  // target arc and last shot path
+  if(!ball&&$('showGuide').checked){
+    g.fillStyle=A?'rgba(52,229,255,.85)':'rgba(255,255,255,.45)';
+    for(let i=1;i<guide.length;i+=2){const p=pvR(0,guide[i].y,guide[i].x);g.beginPath();g.arc(p.x,p.y,Math.max(1.8,(A?4:2.6)*Math.min(2.2,p.s*1.7)),0,Math.PI*2);g.fill()}
+  }
+  if(lastPath&&!ball){
+    g.fillStyle=lastPath.ok?'rgba(92,242,161,.7)':'rgba(255,93,115,.65)';
+    for(let i=0;i<lastPath.pts.length;i+=4){const q=lastPath.pts[i],p=pvR(q.lat||0,q.y,q.x);g.beginPath();g.arc(p.x,p.y,Math.max(1.6,3*Math.min(2.2,p.s*1.7)),0,Math.PI*2);g.fill()}
+  }
+  // backboard bulbs (arcade) and the aim ring
+  const bA=pv(-board.hw,board.top,BZ),bB=pv(board.hw,342,BZ);
+  if(A){
+    const step=Math.floor(now/70);let i=0;
+    const bulb=(x,y)=>{const on=burst>0&&((step+i++)%3===0);g.fillStyle=on?'#fff6e5':'#ffb800';g.globalAlpha=on?1:.6;g.shadowColor='#ffd43b';g.shadowBlur=on?10:3;g.beginPath();g.arc(x,y,2.6,0,Math.PI*2);g.fill()};
+    for(let x=bA.x+8;x<=bB.x-6;x+=14){bulb(x,bA.y+7);bulb(x,bB.y-7)}
+    for(let y=bA.y+21;y<bB.y-14;y+=14){bulb(bA.x+7,y);bulb(bB.x-7,y)}
+    g.globalAlpha=1;g.shadowBlur=0;
+  }
+  if(live&&smooth&&!ball&&!pending){
+    const yr=aimYaw*Math.PI/180,rp=pv(BZ*Math.tan(yr),285,BZ),inWin=Math.abs(HZ*Math.tan(yr))<36;
+    g.strokeStyle=inWin?'#5cf2a1':(A?'#34e5ff':'rgba(255,255,255,.85)');g.lineWidth=3;
+    g.beginPath();g.arc(rp.x,rp.y,12,0,Math.PI*2);g.stroke();g.fillStyle=g.strokeStyle;g.beginPath();g.arc(rp.x,rp.y,2.6,0,Math.PI*2);g.fill();
+  }
+
+  povRim(false);povNet(false);
+  const projB=b=>{const p=pvR(b.lat||0,b.y,b.x);return{x:p.x,y:p.y,r:b.r*PV.k*p.s}};
+  if(ball){
+    const n=ball.trail.length;
+    for(let i=0;i<n;i++){const t=ball.trail[i],p=pvR(t.lat||0,t.y,t.x),fr=i/n;g.fillStyle=A?`rgba(255,123,28,${fr*.55})`:`rgba(255,255,255,${fr*.16})`;g.beginPath();g.arc(p.x,p.y,(A?6:3)*fr*Math.min(2.4,p.s*2.4),0,Math.PI*2);g.fill()}
+  }
+  for(const l of loose){const p=projB(l),a=clamp((2.2-l.age)/.5,0,1);drawBall(p.x,p.y,p.r,l.rot,a)}
+  const behind=ball&&ball.x>=hoop.cx-45;     // ball is at or past the rim plane: the front of the hoop covers it
+  if(ball&&behind){const p=projB(ball);drawBall(p.x,p.y,p.r,ball.rot)}
+  povNet(true);povRim(true);
+  if(ball&&!behind){const p=projB(ball);drawBall(p.x,p.y,p.r,ball.rot)}
+
+  const showHeld=!ball&&(pending||!shotAnim||f.recover>.5);
+  povHands(A,f,bp,showHeld?()=>{   // the ball sits between the palms and the fingers wrapped over it
+    drawBall(bp.x,bp.y,bp.r,0);
+    if(state==='loaded'&&live&&!shotAnim){g.strokeStyle=A?'#34e5ff':'rgba(255,255,255,.7)';g.lineWidth=A?4:2.5;g.beginPath();g.arc(bp.x,bp.y,bp.r+13+Math.sin(now/110)*3,0,Math.PI*2);g.stroke()}
+  }:null);
+
+  if(A&&burst>0){g.strokeStyle=`rgba(255,212,59,${burst})`;g.lineWidth=4;g.beginPath();g.ellipse(HP.cx,HP.cy,HP.rx+(1-burst)*120,HP.ry+(1-burst)*40,0,0,Math.PI*2);g.stroke()}
+  for(const p of particles){g.save();g.globalAlpha=clamp(p.life,0,1);g.translate(p.x,p.y);g.rotate(p.rot);g.fillStyle=p.col;g.fillRect(-p.s/2,-p.s/2,p.s,p.s*.6);g.restore()}
+}
+
+const trajG=$('traj').getContext('2d');
+function drawTraj(){
+  const card=$('trajCard');
+  if(!$('showTraj').checked){card.hidden=true;return}
+  card.hidden=false;
+  const A=theme==='arcade',tw=300,th=180,sh=130,c=trajG;
+  const tx=x=>14+(x-190)/(850-190)*(tw-28),ty=y=>10+(y-60)/(660-60)*(sh-18);
+  c.clearRect(0,0,tw,th);
+  c.fillStyle=A?'#1a0f4a':'#121a24';c.fillRect(0,0,tw,sh);
+  c.strokeStyle=A?'rgba(255,255,255,.08)':'rgba(255,255,255,.06)';c.lineWidth=1;
+  for(let y=20;y<sh;y+=26){c.beginPath();c.moveTo(0,y);c.lineTo(tw,y);c.stroke()}
+  c.strokeStyle=A?'#ff3c8e':'rgba(255,255,255,.3)';c.lineWidth=2;c.beginPath();c.moveTo(0,ty(FLOOR));c.lineTo(tw,ty(FLOOR));c.stroke();
+  c.fillStyle='rgba(255,255,255,.85)';c.fillRect(tx(board.x)-1,ty(board.top),4,ty(board.bottom)-ty(board.top));
+  c.strokeStyle='#ff7b1c';c.lineWidth=4;c.beginPath();c.moveTo(tx(rim.x),ty(rim.y));c.lineTo(tx(rim.x+rim.w),ty(rim.y));c.stroke();
+  if(ball){
+    c.strokeStyle='#5cf2a1';c.lineWidth=2.5;c.beginPath();ball.path.forEach((p,i)=>i?c.lineTo(tx(p.x),ty(p.y)):c.moveTo(tx(p.x),ty(p.y)));c.stroke();
+    c.fillStyle='#ff7b1c';c.beginPath();c.arc(tx(ball.x),ty(ball.y),5,0,Math.PI*2);c.fill();
+  }else{
+    c.setLineDash([5,5]);c.strokeStyle='rgba(92,242,161,.6)';c.lineWidth=2;c.beginPath();guide.forEach((p,i)=>i?c.lineTo(tx(p.x),ty(p.y)):c.moveTo(tx(p.x),ty(p.y)));c.stroke();c.setLineDash([]);
+    c.fillStyle='#ff7b1c';c.beginPath();c.arc(tx(release.x),ty(release.y),5,0,Math.PI*2);c.fill();
+  }
+  // top-down aim map: the side arc alone cannot show left and right
+  c.fillStyle=A?'#0f0830':'#0c1218';c.fillRect(0,sh,tw,th-sh);
+  const lat=ball?ball.lat:currentAimPx,ax=150+clamp(lat,-175,175)*.68,win=rimWin()*.68;
+  c.strokeStyle='rgba(255,255,255,.25)';c.lineWidth=1;c.strokeRect(150-win,sh+7,win*2,12);
+  c.strokeStyle=Math.abs(lat)>rimWin()?'#ff5d73':'#5cf2a1';c.lineWidth=2;c.beginPath();c.moveTo(150,th-5);c.lineTo(ax,sh+13);c.stroke();
+  c.fillStyle='#ffd43b';c.beginPath();c.arc(ax,sh+13,4.5,0,Math.PI*2);c.fill();
+  c.fillStyle='rgba(255,255,255,.55)';c.font='700 10px system-ui,sans-serif';c.fillText('L',92,sh+30);c.fillText('R',204,sh+30);
+  $('trajState').textContent=ball?(ball.done?(ball.scored?'Made':'Missed'):'In flight'):'Live arc';
+}
+
+function loop(t){
+  const dt=Math.min((t-lastFrame)/1000,.035);lastFrame=t;
+  if(live)poseUpdate(t);
+  update(dt,t);draw(t);requestAnimationFrame(loop);
+}
+
+/* =========================================================
+   CSV + cleanup
+   ========================================================= */
+$('csv').onclick=()=>{
+  if(!shotEvents.length)return;
+  const keys=['shot','at','arm','view','release_angle_deg','aim_deg','power_pct','load_elbow_deg','elbow_angle_deg','wrist_speed','hand_flick','hand_typical','finger_adjusted_power_pct','final_aim_deg','result'];
+  const csv=[keys.join(','),...shotEvents.map(e=>keys.map(k=>String(e[k]??'').replaceAll(',',' ')).join(','))].join('\r\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download='shotlab-session-'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+};
+window.addEventListener('pagehide',()=>{stream?.getTracks().forEach(t=>t.stop())});
+
+syncHandBtns();renderStats();refreshPhase();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
