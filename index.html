@@ -178,6 +178,7 @@ body[data-view=side] .pov-only{display:none}
 <header class="top">
   <div class="brand">ShotLab<small>pose basketball</small></div>
   <div class="toggles">
+    <div class="seg" role="group" aria-label="Rendering engine"><button type="button" id="classicMode" aria-pressed="true">Classic</button><button type="button" id="threeMode" aria-pressed="false">3D</button></div>
     <div class="seg" role="group" aria-label="View">
       <button type="button" data-view-btn="side" aria-pressed="true">Side</button>
       <button type="button" data-view-btn="pov" aria-pressed="false">Behind</button>
@@ -191,7 +192,7 @@ body[data-view=side] .pov-only{display:none}
 
 <main class="shell" id="shell">
   <div class="frame" id="frame">
-    <canvas id="court" aria-label="Basketball court"></canvas>
+    <canvas id="court" aria-label="Basketball court"></canvas><div id="court3d" hidden style="position:absolute;inset:0;overflow:hidden" aria-label="3D basketball court"></div>
 
     <!-- Scoreboard -->
     <div class="hud" aria-live="off">
@@ -349,6 +350,9 @@ let releaseDebug={up:0,side:0,depth:0,aim:0}; // Measured movement from last rea
 let shots=0,made=0,streak=0,best=0,ball=null,loose=[],particles=[],lastPath=null;
 let netSway=0,burst=0,shake=0,lastFrame=performance.now(),pending=null,shotAnim=null,loadK=0,view='side',aimLat=0,aimYaw=0,loadInfo=null,recentWrist=null,currentAimPx=0,lastMissKind='',missRun=0;
 let shotEvents=[],lastInfer=0,inferInterval=40,frameCount=0,fpsStart=0;
+let engine3d=null,mode3d=false,loading3d=false;
+async function switchEngine(want){if(loading3d||want===mode3d)return;if(ball||pending){say("Finish the current shot before switching modes.");return}if(want&&!engine3d){loading3d=true; $("threeMode").disabled=true; $("threeMode").textContent="Loading…";try{const m=await import("./court3d.js");engine3d=await m.createCourt($("court3d"));}catch(e){console.error(e);say("3D could not load. Classic is still available.");return}finally{loading3d=false;$("threeMode").disabled=false;$("threeMode").textContent="3D"}}if(ball||pending){say("Finish the current shot before switching modes.");return}mode3d=want;engine3d?.clear();$("court3d").hidden=!want;court.hidden=want;court.style.visibility=want?"hidden":"visible";$("classicMode").setAttribute("aria-pressed",String(!want));$("threeMode").setAttribute("aria-pressed",String(want));if(want)setView("pov");say(want?"3D court ready. Use the same shooting controls.":"Classic court ready.");}
+$("classicMode").onclick=()=>switchEngine(false);$("threeMode").onclick=()=>switchEngine(true);
 
 /* =========================================================
    Look (Arcade / Realistic)
@@ -427,6 +431,7 @@ function callout(main,sub,kind){
   $('calloutMain').textContent=main;$('calloutSub').textContent=sub||'';el.classList.add('show',kind);
 }
 function reset(){
+  engine3d?.clear();
   shots=made=streak=best=0;shotEvents=[];ball=null;pending=null;shotAnim=null;loadK=0;loose=[];particles=[];lastPath=null;loadInfo=null;samples=[];handFlick=0;handLoad=null;handPrev=null;handHist=[];handBase=null;releaseDebug={up:0,side:0,depth:0,aim:0};
   $('csv').disabled=true;$('shotData').textContent='Last shot: none';
   $('callout').className='callout';renderStats();setState('idle');say('Ready for a new session.');
@@ -778,10 +783,10 @@ function poseUpdate(t){
    Shots
    ========================================================= */
 function shoot(angle,power,yaw=0,loadDeg=''){
-  if(ball||pending)return;
+  if(ball||pending||loading3d)return;
   const now=performance.now(),fromPose=state==='loaded'&&live,pov=view==='pov',yw=yaw;
   shots++;lastShot=now;
-  shotEvents.push({shot:shots,at:new Date().toISOString(),arm:$('hand').value,view,release_angle_deg:Math.round(angle),aim_deg:Math.round(yw),power_pct:Math.round(power*100),load_elbow_deg:loadDeg===''?'':Math.round(loadDeg),elbow_angle_deg:$('angle').textContent,wrist_speed:$('velocity').textContent,result:'pending'});
+  shotEvents.push({shot:shots,at:new Date().toISOString(),arm:$('hand').value,view,engine:mode3d?'3d':'classic',release_angle_deg:Math.round(angle),aim_deg:Math.round(yw),power_pct:Math.round(power*100),load_elbow_deg:loadDeg===''?'':Math.round(loadDeg),elbow_angle_deg:$('angle').textContent,wrist_speed:$('velocity').textContent,result:'pending'});
   $('csv').disabled=false;
   const rad=angle*Math.PI/180,speed=SHOT_SPEED*power,vf=speed*Math.cos(rad);
   shotAnim={t0:now,gather:!fromPose,from:loadK};loadK=0;
@@ -832,10 +837,18 @@ function update(dt,now){
     refineRelease(pending,now);
     const p=view==='pov'?{x:release.x,y:271}:computePose(now).B;
     ball={x:p.x,y:p.y,lat:0,vx:pending.vx,vy:pending.vy,vlat:pending.vlat||0,r:15,alive:0,doneAt:0,done:false,scored:false,hitBoard:false,hitRim:false,crossX:undefined,crossLat:0,rot:0,spin:-7,trail:[],path:[]};
+    if(mode3d)engine3d.launch(ball);
     pending=null;lastPath=null;sfx.release();
   }
   if(ball){
     const b=ball;b.alive+=dt;
+    if(mode3d){
+      const scored=engine3d.step(dt,b,rimWin());
+      b.path.push({x:b.x,y:b.y,lat:b.lat});b.trail.push({x:b.x,y:b.y,lat:b.lat});if(b.trail.length>26)b.trail.shift();
+      if(!b.done&&scored)endShot(true);
+      if(!b.done&&(b.y>=FLOOR-b.r&&b.vy>0||b.alive>4||Math.abs(b.lat)>800))endShot(false);
+      if(b.done&&b.alive-b.doneAt>1.25){ball=null;engine3d.clear();if(!live)setState("idle");}
+    }else{
     const py=b.y,pxx=b.x,pl=b.lat;
     b.vy+=GRAV*dt;b.x+=b.vx*dt;b.y+=b.vy*dt;b.lat+=b.vlat*dt;b.rot+=b.spin*dt;
     b.trail.push({x:b.x,y:b.y,lat:b.lat});if(b.trail.length>26)b.trail.shift();
@@ -866,6 +879,7 @@ function update(dt,now){
     if(b.done&&((b.y>=FLOOR-b.r&&b.vy>0)||b.x>W+80||b.alive>b.doneAt+2.4)){
       if(b.x<W+40)loose.push({x:b.x,y:Math.min(b.y,FLOOR-b.r),lat:b.lat,vx:b.vx*.6,vlat:b.vlat*.6,vy:-Math.abs(b.vy)*.45,r:b.r,rot:b.rot,spin:b.vx*.02,age:0});
       ball=null;if(!live)setState('idle');
+    }
     }
   }
   for(const l of loose){
@@ -1105,6 +1119,7 @@ function netPass(front){
 }
 
 function draw(now){
+  if(mode3d){engine3d.render(ball,view,theme,$("showGuide").checked);drawTraj();return;}
   g.setTransform(DPR,0,0,DPR,0,0);g.clearRect(0,0,W,H);
   g.save();
   if(shake>0&&!REDUCED&&theme==='arcade')g.translate((Math.random()-.5)*shake*8,(Math.random()-.5)*shake*8);
@@ -1473,7 +1488,7 @@ function loop(t){
    ========================================================= */
 $('csv').onclick=()=>{
   if(!shotEvents.length)return;
-  const keys=['shot','at','arm','view','release_angle_deg','aim_deg','power_pct','load_elbow_deg','elbow_angle_deg','wrist_speed','hand_flick','hand_typical','finger_adjusted_power_pct','final_aim_deg','result'];
+  const keys=['shot','at','arm','view','engine','release_angle_deg','aim_deg','power_pct','load_elbow_deg','elbow_angle_deg','wrist_speed','hand_flick','hand_typical','finger_adjusted_power_pct','final_aim_deg','result'];
   const csv=[keys.join(','),...shotEvents.map(e=>keys.map(k=>String(e[k]??'').replaceAll(',',' ')).join(','))].join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   const a=document.createElement('a');a.href=url;a.download='shotlab-session-'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';a.click();
